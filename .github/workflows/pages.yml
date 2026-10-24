@@ -39,6 +39,15 @@ jobs:
         run: |
           mkdir -p _site
           cp -r index.html icon.svg .nojekyll css js maps _site/
+      - name: Version the file links
+        # Browsers keep Pages files for 10 minutes. Tagging every script and
+        # style link with this commit means a reload never mixes a new page
+        # with old cached scripts.
+        run: |
+          V="${GITHUB_SHA::8}"
+          find _site/js -name '*.js' -exec sed -i -E "s#(from '[^']+\.js)'#\1?v=$V'#g" {} +
+          sed -i -E "s#(src=\"js/main\.js)\"#\1?v=$V\"#; s#(href=\"css/style\.css)\"#\1?v=$V\"#" _site/index.html
+          grep -c "?v=$V" _site/index.html _site/js/main.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

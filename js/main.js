@@ -607,7 +607,7 @@ function render() {
     showBoost: true,
   });
 
-  if (app.showPath && !app.endless && !playing) drawPath();
+  if (app.showPath && !app.endless) drawPath();
 
   // checkpoint flag (with a ghost of the rider when editing)
   if (app.flag >= 0) {
@@ -713,8 +713,9 @@ function drawPath() {
 
 function togglePath() {
   app.showPath = !app.showPath;
-  $('#pathBtn').classList.toggle('active', app.showPath);
-  $('#pathBtn').setAttribute('aria-pressed', String(app.showPath));
+  $('#pathBtn')?.classList.toggle('active', app.showPath);
+  $('#pathBtn')?.setAttribute('aria-pressed', String(app.showPath));
+  toast(app.showPath ? 'Path on: the dotted line shows where Bosh will go' : 'Path off');
   saveSettings();
   markDirty();
 }
@@ -799,14 +800,14 @@ function loadSettings() {
   } catch { /* defaults */ }
   setSpeed(app.speed);
   $('[data-action="color"]').setAttribute('aria-checked', String(app.colorPlayback));
-  $('#pathBtn').classList.toggle('active', app.showPath);
-  $('#pathBtn').setAttribute('aria-pressed', String(app.showPath));
+  $('#pathBtn')?.classList.toggle('active', app.showPath);
+  $('#pathBtn')?.setAttribute('aria-pressed', String(app.showPath));
 }
 
 for (const b of $$('[data-tool]')) b.addEventListener('click', () => setTool(b.dataset.tool));
 for (const b of $$('[data-type]')) b.addEventListener('click', () => setLineType(+b.dataset.type));
 $('#flip').addEventListener('click', toggleFlip);
-$('#pathBtn').addEventListener('click', togglePath);
+$('#pathBtn')?.addEventListener('click', togglePath);
 $('#undo').addEventListener('click', undo);
 $('#redo').addEventListener('click', redo);
 $('#play').addEventListener('click', togglePlay);
