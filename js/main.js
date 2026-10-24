@@ -557,7 +557,8 @@ function tick(now) {
   const dt = Math.min(0.1, (now - lastTick) / 1000);
   lastTick = now;
   const E = app.endless;
-  if (E) E.work(app.frame, app.mode === 'play' ? 7 : 4);
+  // (more time while Bosh is waiting for track, e.g. right after a start)
+  if (E) E.work(app.frame, app.mode !== 'play' ? 4 : app.frame >= E.playableFrame ? 14 : 7);
   if (app.mode === 'play') {
     app.sub += dt * FPS * SPEEDS[app.speed];
     const steps = Math.floor(app.sub);

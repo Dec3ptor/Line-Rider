@@ -3,10 +3,10 @@ import { Track, Simulator, FPS } from './physics.js';
 import { ChaosGenerator } from './gen/chaos.js';
 import { BIOMES } from './gen/biomes.js';
 
-const AHEAD = FPS * 16;        // keep this many checked frames ahead of the rider
+const AHEAD = FPS * 20;        // keep this many checked frames ahead of the rider
 const KEEP_BEHIND = FPS * 10;  // frames of history kept for the camera
 const PRUNE_EVERY = FPS * 4;
-const UNDO_WINDOW = FPS * 10;  // the generator may back up this far; the rider plays only what's behind it
+const UNDO_WINDOW = FPS * 15;  // the generator may back up this far; the rider plays only what's behind it
 
 export class Endless {
   constructor(seed) {

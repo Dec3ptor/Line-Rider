@@ -27,6 +27,7 @@ export const GUIDE = 0.22;
 const GX = Math.cos(GUIDE), GY = Math.sin(GUIDE);
 const SCHEDULE = 3.4;     // expected progress along the guide, units per frame
 const HORIZON = 36;       // frames each candidate is test-ridden for
+const WANDER = 220;       // frames without real progress before backing up
 
 // sled geometry for a state: mid point of the runners, along/down vectors, velocity
 function sledFrame(s) {
@@ -257,6 +258,7 @@ export class ChaosGenerator {
     this.startX = track.start.x;
     this.startY = track.start.y;
     this.driftBase = 0;     // the corridor is re-centred after each smooth section
+    this.lastWander = -1e9;
     // Backing up is only allowed within undoWindow frames of the furthest point
     // reached, so what's behind that is final (endless mode lets the rider play
     // up to there, whatever the timing, and the world stays the same per seed).
@@ -448,6 +450,16 @@ export class ChaosGenerator {
     const s = this.sim.frame(this.F);
     const sp = speedOf(s);
     const c = s.center();
+    // pottering about without getting anywhere: back up while there's still room to
+    const back = this.F - WANDER;
+    if (back >= this.sim.base && back > this.lastWander) {
+      const o = this.sim.frame(back).center();
+      if ((c.x - o.x) * GX + (c.y - o.y) * GY < 140) {
+        this.lastWander = this.F;
+        this.log('wandering');
+        return yield* this.deadEnd();
+      }
+    }
     const troubled = sp > 11.5 || this.airTime() > 70 || this.drift(c.x, c.y) > 900;
     if (this.episodeLeft > 0 && !troubled) {
       if (yield* this.nudge()) {
@@ -463,6 +475,10 @@ export class ChaosGenerator {
     if (yield* this.catchOnly(false)) { this.log('caught (turnaround)'); this.newEpisode(); return true; }
     if (yield* this.nudge(true)) { this.log('desperate nudge'); return true; }
     if (this.coasts < 3 && this.coast()) { this.coasts++; this.log('coast'); return true; }
+    return yield* this.deadEnd();
+  }
+
+  *deadEnd() {
     // dead end: rewind to just after the last smooth section and lay a plain piece from there
     this.log('dead end -> fallback');
     const deadF = this.F;
@@ -486,16 +502,26 @@ export class ChaosGenerator {
     for (const kind of [rng.pick(['cruise', 'kicker', 'rollers', 'drop']), 'cruise', 'straight']) {
       const piece = yield* flow.next(kind, 4);
       if (!piece) continue;
-      if (!this.historyIntact()) {
+      if (!this.historyIntact() || !this.rollsOn(flow.anchor.frame)) {
         flow.pieces.pop();
         this.removeLines(piece.lines);
-        return false;
+        flow.anchor = anchorBefore;
+        continue;
       }
       this.absorbFlow(kind, anchorBefore);
       this.coasts = 0;
       return true;
     }
     return false;
+  }
+
+  // does he keep moving for a while after frame f (on whatever's there)?
+  rollsOn(f, n = 45) {
+    for (let k = f + 1; k <= f + n; k++) {
+      const s = this.sim.frame(k);
+      if (!s.mounted || speedOf(s) < 1.2) return false;
+    }
+    return true;
   }
 
   coast() {
@@ -873,11 +899,18 @@ export class ChaosGenerator {
       const catchAnchor = flow.anchor;
       if (kind && kind !== 'cruise') {
         const piece = yield* flow.next(kind, 6);
-        if (piece && !this.historyIntact()) {
+        if (piece && (!this.historyIntact() || !this.rollsOn(flow.anchor.frame))) {
           flow.pieces.pop();
           this.removeLines(piece.lines);
           flow.anchor = catchAnchor;
         }
+      }
+      if (!this.rollsOn(flow.anchor.frame)) {
+        // the run-out leads into old track that stops him dead: not this one
+        for (const p of flow.pieces.splice(0)) this.removeLines(p.lines);
+        flow.events.length = 0;
+        flow.anchor = anchorBefore;
+        continue;
       }
       this.absorbFlow(kind, anchorBefore);
       return true;
