@@ -12,7 +12,7 @@
 <body>
   <canvas id="c" aria-label="Track canvas"></canvas>
 
-  <header class="bar top" role="toolbar" aria-label="Drawing tools">
+  <header class="bar top edit-only" role="toolbar" aria-label="Drawing tools">
     <div class="group">
       <button class="icon tool active" data-tool="pencil" title="Pencil (Q)" aria-label="Pencil">
         <svg viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.6 5.2a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19 4 20z"/><path d="M13.8 7l3.2 3.2"/></svg>
@@ -41,6 +41,19 @@
     </div>
   </header>
 
+  <header class="bar top endless-bar endless-only" aria-label="Endless ride">
+    <button class="icon" id="exitEndless" title="Back to the editor" aria-label="Back to the editor">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div class="area"><small>Endless ride</small><span id="areaName">Endless ride</span></div>
+    <button class="icon" id="newWorld" title="New world (N)" aria-label="New world">
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.3" fill="currentColor"/><circle cx="15" cy="15" r="1.3" fill="currentColor"/><circle cx="15" cy="9" r="1.3" fill="currentColor"/><circle cx="9" cy="15" r="1.3" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <div id="banner" aria-live="polite"><small>Now entering</small><span></span></div>
+  <div id="trick" aria-live="polite"></div>
+
   <div class="side" aria-label="View controls">
     <button class="icon small" id="zoomIn" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
     <button class="icon small" id="zoomOut" title="Zoom out (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
@@ -50,35 +63,42 @@
   <div id="hud" aria-live="polite"></div>
 
   <footer class="bar bottom" role="toolbar" aria-label="Playback">
-    <div class="group">
+    <div class="group edit-only">
       <button class="icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
       <button class="icon" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
     </div>
-    <div class="sep hide-narrow"></div>
+    <div class="sep hide-narrow edit-only"></div>
     <div class="group">
       <button class="icon" id="stop" title="Stop (U)" aria-label="Stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button>
       <button class="icon play" id="play" title="Play / pause (Space)" aria-label="Play">
         <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6a1 1 0 0 0 1.5.9l10.6-6.8a1 1 0 0 0 0-1.7L9.5 4.3A1 1 0 0 0 8 5.2z" fill="currentColor" stroke="none"/></svg>
         <svg class="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4.2" height="14" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2" fill="currentColor" stroke="none"/></svg>
       </button>
-      <button class="icon" id="flag" title="Flag: set a checkpoint to replay from (I)" aria-label="Flag"><svg viewBox="0 0 24 24"><path d="M6 21V4"/><path d="M6 4.5h11l-2.6 4L17 12.5H6"/></svg></button>
+      <button class="icon edit-only" id="flag" title="Flag: set a checkpoint to replay from (I)" aria-label="Flag"><svg viewBox="0 0 24 24"><path d="M6 21V4"/><path d="M6 4.5h11l-2.6 4L17 12.5H6"/></svg></button>
     </div>
-    <div class="timeline">
+    <div class="timeline edit-only">
       <input type="range" id="timeline" min="0" max="400" value="0" step="1" aria-label="Timeline">
       <span id="time">0:00.00</span>
     </div>
     <div class="group">
+      <button class="icon" id="exploreBtn" title="Endless ride &amp; maps" aria-label="Endless ride and maps">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>
+      </button>
       <button class="icon text" id="speed" title="Playback speed" aria-label="Playback speed">1×</button>
       <button class="icon" id="menuBtn" title="Menu" aria-label="Menu" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     </div>
   </footer>
 
   <div id="menu" class="menu" hidden role="menu">
-    <button role="menuitem" data-action="new">New track</button>
-    <button role="menuitem" data-action="demo">Load demo track</button>
+    <button role="menuitem" data-action="explore">Endless ride &amp; maps…</button>
+    <button role="menuitem" data-action="newWorld" class="endless-only">New world</button>
+    <button role="menuitem" data-action="exitEndless" class="endless-only">Back to the editor</button>
     <hr>
-    <button role="menuitem" data-action="open">Open file…</button>
-    <button role="menuitem" data-action="save">Save file</button>
+    <button role="menuitem" data-action="new" class="edit-only">New track</button>
+    <button role="menuitem" data-action="demo" class="edit-only">Load demo track</button>
+    <hr class="edit-only">
+    <button role="menuitem" data-action="open" class="edit-only">Open file…</button>
+    <button role="menuitem" data-action="save" class="edit-only">Save file</button>
     <button role="menuitem" data-action="share">Copy share link</button>
     <hr>
     <button role="menuitem" data-action="color" class="check" aria-checked="false">Colored lines while playing</button>
@@ -125,7 +145,23 @@
           <p class="note">Your track saves in this browser automatically. Use the menu to save a file (it also opens on linerider.com) or copy a share link.</p>
         </section>
       </div>
-      <button class="primary" id="helpGo">Start riding</button>
+      <div class="actions">
+        <button class="secondary" id="helpEndless">Try endless mode</button>
+        <button class="primary" id="helpGo">Start drawing</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="explore" class="modal" hidden>
+    <div class="card wide" role="dialog" aria-modal="true" aria-labelledby="exploreTitle">
+      <button class="icon close" id="exploreClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <h1 id="exploreTitle">Ride</h1>
+      <button class="hero" id="playEndless">
+        <span class="hero-icon"><svg viewBox="0 0 48 24"><path d="M24 12c-3-4-6-6-9-6a6 6 0 0 0 0 12c3 0 6-2 9-6s6-6 9-6a6 6 0 0 1 0 12c-3 0-6-2-9-6z"/></svg></span>
+        <span class="hero-text"><b>Endless ride</b><small>A never-ending world that builds itself ahead of you: jumps, flips, loops and eight different areas.</small></span>
+      </button>
+      <h2>Maps</h2>
+      <div class="maps" id="mapList"></div>
     </div>
   </div>
 

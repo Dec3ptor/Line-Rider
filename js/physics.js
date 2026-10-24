@@ -25,6 +25,7 @@ export class Line {
     this.leftExt = !!leftExt;
     this.rightExt = !!rightExt;
     this.multiplier = 1;
+    this.style = null;   // optional { color, width } for scenery art
     this.compute();
   }
 
@@ -453,6 +454,7 @@ const AFFECT_MARGIN = 25;
 export class Simulator {
   constructor(track) {
     this.track = track;
+    this.base = 0;          // absolute index of frames[0] (older frames can be dropped)
     this.frames = [makeRider(track.start)];
     this.crashFrame = -1;
     track.onChange((kind, line) => {
@@ -462,11 +464,13 @@ export class Simulator {
   }
 
   reset() {
+    this.base = 0;
     this.frames = [makeRider(this.track.start)];
     this.crashFrame = -1;
   }
 
-  get computed() { return this.frames.length; }
+  // number of frames known so far (absolute)
+  get computed() { return this.base + this.frames.length; }
 
   // Drop cached frames from the first one where the rider came near this line.
   invalidateNear(line) {
@@ -477,24 +481,56 @@ export class Simulator {
     for (let i = 0; i < f.length; i++) {
       const s = f[i];
       if (s.maxX >= x0 && s.minX <= x1 && s.maxY >= y0 && s.minY <= y1) {
-        this.truncate(Math.max(1, i));
+        this.truncate(this.base + Math.max(1, i));
         return;
       }
     }
   }
 
+  // would removing/adding this line change any cached frame?
+  touches(line) {
+    if (!line.collidable) return false;
+    const x0 = line.minX - AFFECT_MARGIN, x1 = line.maxX + AFFECT_MARGIN;
+    const y0 = line.minY - AFFECT_MARGIN, y1 = line.maxY + AFFECT_MARGIN;
+    for (const s of this.frames) {
+      if (s.maxX >= x0 && s.minX <= x1 && s.maxY >= y0 && s.minY <= y1) return true;
+    }
+    return false;
+  }
+
+  // keep frames before absolute index `len`
   truncate(len) {
-    if (this.frames.length > len) this.frames.length = len;
-    if (this.crashFrame >= len) this.crashFrame = -1;
+    const keep = Math.max(1, len - this.base);
+    if (this.frames.length > keep) this.frames.length = keep;
+    if (this.crashFrame >= this.base + keep) this.crashFrame = -1;
+  }
+
+  // forget frames before absolute index n (used by endless mode to save memory)
+  dropBefore(n) {
+    const k = Math.min(n - this.base, this.frames.length - 1);
+    if (k <= 0) return;
+    this.frames.splice(0, k);
+    this.base += k;
+  }
+
+  // replace the rider at frame n (endless mode respawn)
+  setState(n, state) {
+    this.truncate(n);
+    this.frames.length = Math.max(0, n - this.base);
+    state.computeBounds();
+    this.frames.push(state);
+    if (this.crashFrame >= n) this.crashFrame = -1;
   }
 
   frame(n) {
     const f = this.frames;
-    while (f.length <= n) {
+    const idx = n - this.base;
+    if (idx < 0) return f[0];
+    while (f.length <= idx) {
       const next = stepRider(f[f.length - 1], this.track);
-      if (!next.mounted && this.crashFrame < 0) this.crashFrame = f.length;
+      if (!next.mounted && this.crashFrame < 0) this.crashFrame = this.base + f.length;
       f.push(next);
     }
-    return f[n];
+    return f[idx];
   }
 }

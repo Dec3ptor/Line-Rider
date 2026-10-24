@@ -28,13 +28,32 @@ export function viewBounds(view, pad = 0) {
 export function drawTrack(ctx, track, view, opts) {
   const b = viewBounds(view, 4);
   const groups = { 0: [], 1: [], 2: [] };
+  const styled = new Map();
   track.forLinesInRect(b.x0, b.y0, b.x1, b.y1, (l) => {
     if (l.maxX < b.x0 || l.minX > b.x1 || l.maxY < b.y0 || l.minY > b.y1) return;
+    if (l.style) {
+      let arr = styled.get(l.style);
+      if (!arr) styled.set(l.style, (arr = []));
+      arr.push(l);
+      return;
+    }
     groups[l.type].push(l);
   });
   const lw = Math.max(LINE_WIDTH, 1.25 / view.zoom);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+  // coloured scenery art sits behind everything
+  for (const [st, arr] of styled) {
+    ctx.beginPath();
+    for (const l of arr) {
+      ctx.moveTo(l.x1, l.y1);
+      ctx.lineTo(l.x2, l.y2);
+    }
+    ctx.strokeStyle = st.color;
+    ctx.lineWidth = Math.max(st.width, 0.9 / view.zoom);
+    ctx.stroke();
+  }
 
   const colored = opts.colored;
   // Shading on the solid side shows which way a line can be ridden.
@@ -64,7 +83,7 @@ export function drawTrack(ctx, track, view, opts) {
       ctx.moveTo(l.x1, l.y1);
       ctx.lineTo(l.x2, l.y2);
     }
-    ctx.strokeStyle = colored ? LINE_COLORS[type] : PLAY_COLOR;
+    ctx.strokeStyle = colored || (opts.showBoost && type === LineType.ACCEL) ? LINE_COLORS[type] : PLAY_COLOR;
     ctx.lineWidth = lw;
     ctx.stroke();
   }

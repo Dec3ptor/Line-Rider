@@ -6,6 +6,8 @@ import {
   serialize, parseTrack, toLineRiderJSON, encodeShare, decodeShare, storeGet, storeSet, downloadFile,
 } from './storage.js';
 import { demoLines } from './demo.js';
+import { Endless, randomSeed } from './endless.js';
+import { BIOME_BY_ID } from './gen/biomes.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -13,8 +15,11 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const canvas = $('#c');
 const ctx = canvas.getContext('2d');
 
-const track = new Track();
-const sim = new Simulator(track);
+// The editor's own track. Endless mode swaps in its own world while it runs.
+const editor = { track: new Track() };
+editor.sim = new Simulator(editor.track);
+let track = editor.track;
+let sim = editor.sim;
 
 const MIN_ZOOM = 0.05, MAX_ZOOM = 24;
 const PENCIL_STEP_PX = 6;
@@ -43,6 +48,10 @@ const app = {
   colorPlayback: false,
   dirty: true,
   followEase: 0,
+  followHold: 0,     // camera stops following until this time (after the user drags)
+  endless: null,     // Endless instance while in endless mode
+  bg: [255, 255, 255],
+  bgTarget: [255, 255, 255],
 };
 
 // ---------------------------------------------------------------------------
@@ -133,7 +142,7 @@ function trackEdited() {
 
 function saveLocal() {
   clearTimeout(saveTimer);
-  storeSet(STORE_TRACK, JSON.stringify(serialize(track)));
+  storeSet(STORE_TRACK, JSON.stringify(serialize(editor.track)));
 }
 
 // ---------------------------------------------------------------------------
@@ -304,6 +313,14 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (pointers.size > 1) return;
 
+  if (app.endless) {
+    // endless mode: dragging just looks around
+    gesture = 'pan';
+    panLast = p;
+    app.followHold = Infinity;
+    canvas.classList.add('grabbing');
+    return;
+  }
   if (app.mode === 'play') pause();
 
   const w = toWorld(p.x, p.y);
@@ -365,6 +382,7 @@ function pointerEnd(e) {
   } else if (gesture === 'pinch' || gesture === 'wait') {
     gesture = pointers.size === 0 ? null : 'wait';
   }
+  if (app.endless && pointers.size === 0) app.followHold = performance.now() + 2500;
   markDirty();
 }
 canvas.addEventListener('pointerup', pointerEnd);
@@ -373,6 +391,7 @@ canvas.addEventListener('pointerleave', () => { hover = null; markDirty(); });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function startPinch() {
+  if (app.endless) app.followHold = Infinity;
   const [a, b] = [...pointers.values()];
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   pinch = { dist: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), zoom: view.zoom, world: toWorld(mid.x, mid.y) };
@@ -430,6 +449,7 @@ function pause() {
 }
 
 function stop() {
+  if (app.endless) { restartEndless(); return; }
   app.mode = 'edit';
   app.frame = 0;
   app.sub = 0;
@@ -447,6 +467,7 @@ function restart() {
 }
 
 function seek(frame) {
+  if (app.endless) return;
   if (app.mode === 'play') pause();
   if (app.mode === 'edit') app.mode = 'pause';
   app.frame = clamp(Math.round(frame), 0, MAX_FRAMES);
@@ -458,6 +479,7 @@ function seek(frame) {
 }
 
 function flagAction() {
+  if (app.endless) return;
   if (app.mode === 'edit') {
     if (app.flag >= 0) { app.flag = -1; toast('Flag removed'); }
     else toast('Play or pause the ride, then press Flag to set a checkpoint');
@@ -484,7 +506,18 @@ function riderCenterNow() {
 
 function followCamera(instant = false) {
   const c = riderCenterNow();
-  const bx = (view.w * 0.16) / view.zoom, by = (view.h * 0.16) / view.zoom;
+  if (app.endless) {
+    // look ahead in the direction of travel so jumps show where they land
+    const v = sim.frame(app.frame).velocity();
+    const k = Math.min(1, 0.04 * (instant ? 25 : 1));
+    app.lead = app.lead || { x: 0, y: 0 };
+    app.lead.x += (clamp(v.x * 20, -view.w * 0.32 / view.zoom, view.w * 0.32 / view.zoom) - app.lead.x) * k;
+    app.lead.y += (clamp(v.y * 16, -view.h * 0.28 / view.zoom, view.h * 0.28 / view.zoom) - app.lead.y) * k;
+    c.x += app.lead.x;
+    c.y += app.lead.y;
+  }
+  const box = app.endless ? 0.04 : 0.16;
+  const bx = (view.w * box) / view.zoom, by = (view.h * box) / view.zoom;
   let tx = view.x, ty = view.y;
   if (c.x > view.x + bx) tx = c.x - bx; else if (c.x < view.x - bx) tx = c.x + bx;
   if (c.y > view.y + by) ty = c.y - by; else if (c.y < view.y - by) ty = c.y + by;
@@ -520,6 +553,8 @@ let lastTick = performance.now();
 function tick(now) {
   const dt = Math.min(0.1, (now - lastTick) / 1000);
   lastTick = now;
+  const E = app.endless;
+  if (E) E.work(app.frame, app.mode === 'play' ? 7 : 4);
   if (app.mode === 'play') {
     app.sub += dt * FPS * SPEEDS[app.speed];
     const steps = Math.floor(app.sub);
@@ -527,9 +562,22 @@ function tick(now) {
       app.frame += steps;
       app.sub -= steps;
     }
-    if (app.frame >= MAX_FRAMES) { app.frame = MAX_FRAMES; pause(); }
+    if (E) {
+      // never ride onto track that hasn't been checked yet
+      const cap = E.playableFrame;
+      if (app.frame >= cap) { app.frame = cap; app.sub = 0; }
+    } else if (app.frame >= MAX_FRAMES) {
+      app.frame = MAX_FRAMES;
+      pause();
+    }
     app.maxFrame = Math.max(app.maxFrame, app.frame);
-    followCamera();
+    if (now > app.followHold) followCamera();
+    app.dirty = true;
+  }
+  if (E) {
+    handleEndlessEvents(E.update(app.frame));
+    const k = Math.min(1, dt * 1.5);
+    for (let i = 0; i < 3; i++) app.bg[i] += (app.bgTarget[i] - app.bg[i]) * k;
     app.dirty = true;
   }
   if (app.dirty) {
@@ -543,12 +591,16 @@ const scratchPts = new Float64Array(34);
 
 function render() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = app.endless ? `rgb(${app.bg.map(Math.round).join(',')})` : '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   applyView(ctx, view, dpr);
 
   const playing = app.mode === 'play';
-  drawTrack(ctx, track, view, { colored: !playing || app.colorPlayback, showSides: !playing });
+  drawTrack(ctx, track, view, {
+    colored: app.endless ? false : !playing || app.colorPlayback,
+    showSides: !playing && !app.endless,
+    showBoost: !!app.endless,
+  });
 
   // checkpoint flag (with a ghost of the rider when editing)
   if (app.flag >= 0) {
@@ -579,7 +631,7 @@ function render() {
     }
   }
 
-  updateTimeline();
+  if (!app.endless) updateTimeline();
   updateHud(a);
 }
 
@@ -602,6 +654,16 @@ function updateTimeline() {
 }
 
 function updateHud(state) {
+  if (app.endless) {
+    const E = app.endless;
+    const v = state.velocity();
+    const st = E.stats;
+    const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
+    const text = `${E.distance(app.frame)} m  ·  speed ${Math.hypot(v.x, v.y).toFixed(1)}\n`
+      + `${n(st.jumps, 'jump')}  ·  ${n(st.flips, 'flip')}  ·  ${n(st.loops, 'loop')}`;
+    if (text !== lastHud) { lastHud = text; hud.textContent = text; }
+    return;
+  }
   const n = track.size;
   let text = `${n} line${n === 1 ? '' : 's'}`;
   if (app.mode !== 'edit') {
@@ -732,6 +794,9 @@ menu.addEventListener('click', (e) => {
       saveSettings();
     },
     help: showHelp,
+    explore: showExplore,
+    exitEndless,
+    newWorld,
   })[action]?.();
 });
 
@@ -797,6 +862,11 @@ $('#fileInput').addEventListener('change', async (e) => {
 });
 
 async function shareLink() {
+  if (app.endless) {
+    const url = `${location.origin}${location.pathname}#endless=${app.endless.seed}`;
+    try { await navigator.clipboard.writeText(url); toast('Link to this world copied'); } catch { window.prompt('Copy this link:', url); }
+    return;
+  }
   try {
     const code = await encodeShare(serialize(track));
     const url = `${location.origin}${location.pathname}#track=${code}`;
@@ -814,6 +884,12 @@ async function shareLink() {
 
 async function loadFromHash() {
   const m = location.hash.match(/[#&]track=([^&]+)/);
+  const em = location.hash.match(/[#&]endless=(\d+)/);
+  if (em) {
+    app.pendingEndless = +em[1];
+    history.replaceState(null, '', location.pathname + location.search);
+    return false;
+  }
   if (!m) return false;
   try {
     const parsed = parseTrack(await decodeShare(m[1]));
@@ -835,8 +911,15 @@ function loadInitial(parsed) {
 }
 
 window.addEventListener('hashchange', async () => {
+  const em = location.hash.match(/[#&]endless=(\d+)/);
+  if (em) {
+    history.replaceState(null, '', location.pathname + location.search);
+    enterEndless(+em[1]);
+    return;
+  }
   const m = location.hash.match(/[#&]track=([^&]+)/);
   if (!m) return;
+  if (app.endless) exitEndless();
   try {
     replaceTrack(parseTrack(await decodeShare(m[1])), 'Loaded a shared track');
   } catch {
@@ -859,6 +942,21 @@ window.addEventListener('keydown', (e) => {
   }
   if (!$('#help').hidden) {
     if (k === 'escape' || k === 'enter') { hideHelp(); e.preventDefault(); }
+    return;
+  }
+  if (app.endless) {
+    if (mod) return;
+    switch (k) {
+      case ' ': e.preventDefault(); if (!e.repeat) togglePlay(); break;
+      case 'n': newWorld(); break;
+      case 'u': case 'y': restartEndless(); break;
+      case 'c': case 'home': app.followHold = 0; app.followEase = 20; break;
+      case '+': case '=': zoomAt({ x: view.w / 2, y: view.h / 2 }, view.zoom * 1.25); break;
+      case '-': case '_': zoomAt({ x: view.w / 2, y: view.h / 2 }, view.zoom / 1.25); break;
+      case 'escape': if (!menu.hidden) closeMenu(); else if (!$('#explore').hidden) hideExplore(); break;
+      case '?': case 'h': showHelp(); break;
+      default: return;
+    }
     return;
   }
   if (mod) {
@@ -933,11 +1031,132 @@ async function init() {
   frameStart();
   setTool('pencil');
   updateButtons();
-  if (!storeGet(STORE_HELP)) showHelp();
+  if (app.pendingEndless) enterEndless(app.pendingEndless);
+  else if (!storeGet(STORE_HELP)) showHelp();
   requestAnimationFrame((t) => { lastTick = t; tick(t); });
 }
+
+// ---------------------------------------------------------------------------
+// Endless mode
+
+const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+
+function enterEndless(seed = randomSeed()) {
+  closeMenu();
+  hideExplore();
+  $('#help').hidden = true;
+  if (stroke) cancelTool();
+  if (!app.endless) saveLocal();
+  const E = new Endless(seed);
+  app.endless = E;
+  track = E.track;
+  sim = E.sim;
+  app.mode = 'pause';
+  app.frame = 0;
+  app.sub = 0;
+  app.flag = -1;
+  app.maxFrame = 0;
+  app.followHold = 0;
+  app.bg = [255, 255, 255];
+  app.bgTarget = [255, 255, 255];
+  E.work(0, 300);
+  document.body.classList.add('endless');
+  canvas.className = 'tool-pan';
+  $('#areaName').textContent = 'Endless ride';
+  view.zoom = clamp(Math.min(view.w / 620, view.h / 420), 0.8, 1.8);
+  app.lead = { x: 0, y: 0 };
+  centerOnRider();
+  lastHud = '';
+  play();
+}
+
+function exitEndless() {
+  if (!app.endless) return;
+  app.endless = null;
+  track = editor.track;
+  sim = editor.sim;
+  document.body.classList.remove('endless');
+  $('#banner').classList.remove('show');
+  $('#trick').classList.remove('show');
+  app.mode = 'edit';
+  app.frame = 0;
+  app.sub = 0;
+  lastHud = '';
+  setTool(app.tool);
+  updateButtons();
+  frameStart();
+}
+
+function restartEndless() {
+  if (app.endless) enterEndless(app.endless.seed);
+}
+
+function newWorld() {
+  enterEndless(randomSeed());
+}
+
+let bannerTimer = 0, trickTimer = 0;
+function showBanner(name) {
+  const b = $('#banner');
+  b.querySelector('span').textContent = name;
+  b.classList.remove('show');
+  void b.offsetWidth;
+  b.classList.add('show');
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => b.classList.remove('show'), 2600);
+}
+
+function showTrick(label) {
+  const t = $('#trick');
+  t.textContent = label;
+  t.classList.remove('show');
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(trickTimer);
+  trickTimer = setTimeout(() => t.classList.remove('show'), 1300);
+}
+
+function handleEndlessEvents(events) {
+  for (const e of events) {
+    if (e.type === 'biome') {
+      showBanner(e.name);
+      $('#areaName').textContent = e.name;
+      app.bgTarget = hexToRgb(e.biome.tint);
+    } else if (e.type === 'flip' || e.type === 'loop') {
+      showTrick(e.label);
+    } else if (e.type === 'air' && e.air >= 70) {
+      showTrick(`Huge air! ${(e.air / FPS).toFixed(1)}s`);
+    } else if (e.type === 'respawn') {
+      app.followEase = 40;
+      app.followHold = 0;
+      toast('Wipeout! Back on the sled…');
+    }
+  }
+}
+
+// ---- explore (endless + maps) ----
+function showExplore() {
+  closeMenu();
+  $('#explore').hidden = false;
+  $('#explore .card').scrollTop = 0;
+}
+function hideExplore() {
+  $('#explore').hidden = true;
+}
+$('#exploreBtn').addEventListener('click', showExplore);
+$('#exploreClose').addEventListener('click', hideExplore);
+$('#explore').addEventListener('pointerdown', (e) => { if (e.target.id === 'explore') hideExplore(); });
+$('#playEndless').addEventListener('click', () => enterEndless());
+$('#helpEndless').addEventListener('click', () => { hideHelp(); enterEndless(); });
+$('#exitEndless').addEventListener('click', exitEndless);
+$('#newWorld').addEventListener('click', newWorld);
 
 init();
 
 // handy for debugging from the console
-window.lineRider = { track, sim, app, view };
+window.lineRider = {
+  get track() { return track; },
+  get sim() { return sim; },
+  get endless() { return app.endless; },
+  app, view, enterEndless, exitEndless,
+};

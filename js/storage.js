@@ -10,11 +10,24 @@ const r2 = (v) => Math.round(v * 1e6) / 1e6;
 export function serialize(track, name = '') {
   const sorted = [...track.lines.values()].sort((a, b) => a.id - b.id);
   const lines = [];
+  const styles = [];
+  const styleIndex = new Map();
   for (const l of sorted) {
-    const flags = l.type | (l.flipped ? 4 : 0) | (l.leftExt ? 8 : 0) | (l.rightExt ? 16 : 0);
+    let flags = l.type | (l.flipped ? 4 : 0) | (l.leftExt ? 8 : 0) | (l.rightExt ? 16 : 0);
+    if (l.style) {
+      let i = styleIndex.get(l.style);
+      if (i == null) {
+        i = styles.length;
+        styles.push([l.style.color, l.style.width]);
+        styleIndex.set(l.style, i);
+      }
+      flags |= (i + 1) << 5;
+    }
     lines.push(flags, r2(l.x1), r2(l.y1), r2(l.x2), r2(l.y2));
   }
-  return { v: 1, name, start: [r2(track.start.x), r2(track.start.y)], lines };
+  const out = { v: 1, name, start: [r2(track.start.x), r2(track.start.y)], lines };
+  if (styles.length) out.styles = styles;
+  return out;
 }
 
 // Returns { name, start, lines: Line[] } from any supported format.
@@ -26,9 +39,13 @@ export function parseTrack(data) {
   if (data.v === 1 && Array.isArray(data.lines) && (data.lines.length === 0 || typeof data.lines[0] === 'number')) {
     const out = [];
     const a = data.lines;
+    const styles = (data.styles || []).map(([color, width]) => Object.freeze({ color: String(color), width: +width || 1.5 }));
     for (let i = 0, id = 1; i + 4 < a.length; i += 5, id++) {
       const f = a[i];
-      out.push(new Line(id, f & 3, a[i + 1], a[i + 2], a[i + 3], a[i + 4], !!(f & 4), !!(f & 8), !!(f & 16)));
+      const l = new Line(id, f & 3, a[i + 1], a[i + 2], a[i + 3], a[i + 4], !!(f & 4), !!(f & 8), !!(f & 16));
+      const si = f >> 5;
+      if (si > 0 && styles[si - 1] && l.type === LineType.SCENERY) l.style = styles[si - 1];
+      out.push(l);
     }
     const s = data.start || [0, 0];
     return { name: data.name || '', start: { x: s[0], y: s[1] }, lines: out };
