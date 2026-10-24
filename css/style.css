@@ -465,3 +465,6 @@ button.secondary:hover { filter: brightness(0.98); }
 @media (max-width: 380px) {
   .maps { grid-template-columns: 1fr; }
 }
+
+.map-card.loading { opacity: 0.6; cursor: progress; }
+.map-card .tag.lvl { background: #e5eeff; color: #1565e6; }

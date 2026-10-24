@@ -61,6 +61,15 @@ export class Generator {
     this.lastKinds = [];
     this.distanceSign = 0;
     this.stats = {};
+    this.isMap = !!opts.map;
+    if (opts.biome) this.setBiome(opts.biome);
+  }
+
+  // Switch to a given area (used by scripted maps).
+  setBiome(biome) {
+    this.biome = biome;
+    this.biomeLeft = Infinity;
+    this.biomeStartPending = true;
   }
 
   // ---------------------------------------------------------------- lines
@@ -112,12 +121,21 @@ export class Generator {
         const perp = -ox * dy + oy * dx;
         const v = speedOf(s);
         if (perp < -8 || perp > 4) return { ok: false, why: 'off line', frame: f };
-        if (Math.abs(angleDiff(m.ang, exit.a)) > 0.35) return { ok: false, why: 'tilted', frame: f };
-        if (Math.abs(m.lean) > 0.75) return { ok: false, why: 'leaning', frame: f };
         if (v < (opts.minSpeed ?? 2.5) || v > (opts.maxSpeed ?? 20)) return { ok: false, why: 'speed', frame: f, speed: v };
-        const m3 = sledInfo(sim.frame(f - 3));
-        if (Math.abs(angleDiff(m.ang, m3.ang)) > 0.12) return { ok: false, why: 'wobbly', frame: f };
-        return { ok: true, frame: f, speed: v };
+        // Bosh should be upright and settled, not still swinging from a landing.
+        // If not yet, give him the rest of the run-out to calm down.
+        let why = null;
+        if (Math.abs(angleDiff(m.ang, exit.a)) > 0.35) why = 'tilted';
+        else if (Math.abs(m.lean) > 0.75) why = 'leaning';
+        else if (Math.abs(angleDiff(m.ang, sledInfo(sim.frame(f - 3)).ang)) > 0.12) why = 'wobbly';
+        else {
+          for (let k = 1; k <= 8; k++) {
+            if (Math.abs(sledInfo(sim.frame(f - k)).lean) > 0.5) { why = 'unsettled'; break; }
+          }
+        }
+        if (!why) return { ok: true, frame: f, speed: v };
+        if (along > (exit.slack ?? 0)) return { ok: false, why, frame: f };
+        continue;
       }
       if (along > best + 2) { best = along; bestF = f; }
       if (f - bestF > 150) return { ok: false, why: 'stuck', frame: f };
@@ -157,8 +175,8 @@ export class Generator {
     const run = opts.run ?? clamp(v * 9, 70, 220);
     const from = last.end;
     last.line(run, 14);
-    const k = run * 0.45;
-    const exit = { x: from.x + Math.cos(last.a) * k, y: from.y + Math.sin(last.a) * k, a: last.a };
+    const k = run * 0.4;
+    const exit = { x: from.x + Math.cos(last.a) * k, y: from.y + Math.sin(last.a) * k, a: last.a, slack: run * 0.35 };
     for (const p of paths) this.addPath(p);
     const res = yield* this.ride(a.frame, exit, opts);
     if (!res.ok) return res;
@@ -179,7 +197,7 @@ export class Generator {
       this.turn(p, 0.3, 8);
       const res = yield* this.finish([p], a, { minSpeed: 1, run: 120 });
       if (res.ok) {
-        this.commit('start', res, a, { paths: [p] });
+        this.commit('start', res, a, { paths: [p], startArch: this.isMap });
         return true;
       }
       this.rollbackTo(mark);
@@ -295,7 +313,8 @@ export class Generator {
       const mark = this.pending.length;
       const land = this.landingPath(flight, c, rng, mode);
       const res = yield* this.finish([land], a, {
-        run: mode.run, maxFrames: takeoff - a.frame + c.i + 400, maxSpeed: 21,
+        run: mode.run ?? (kind === 'flip' ? clamp(c.sp * 14, 120, 300) : undefined),
+        maxFrames: takeoff - a.frame + c.i + 400, maxSpeed: 21,
       });
       if (res.ok) {
         return {
@@ -340,15 +359,26 @@ export class Generator {
   }
 
   *gaps(a, rng) {
-    return yield* this.chain(a, rng, rng.int(2, 4), () => ({
-      kind: 'gap', minAir: 7, airTarget: rng.range(9, 18), exitA: rng.range(0.15, 0.4), run: rng.range(40, 80),
+    const n = rng.int(2, 4);
+    return yield* this.chain(a, rng, n, (k) => ({
+      kind: 'gap', minAir: 7, airTarget: rng.range(9, 18), exitA: rng.range(0.15, 0.4),
+      run: k === n - 1 ? undefined : Math.max(rng.range(40, 80), a.speed * 5),
     }));
   }
 
   *steps(a, rng) {
-    return yield* this.chain(a, rng, rng.int(2, 3), () => ({
-      kind: 'drop', minAir: 10, airTarget: rng.range(14, 28), exitA: rng.range(0.03, 0.15), run: rng.range(50, 90),
+    const n = rng.int(2, 3);
+    return yield* this.chain(a, rng, n, (k) => ({
+      kind: 'drop', minAir: 10, airTarget: rng.range(14, 28), exitA: rng.range(0.03, 0.15),
+      run: k === n - 1 ? undefined : Math.max(rng.range(50, 90), a.speed * 6),
     }));
+  }
+
+  // last resort: carry straight on
+  *straight(a) {
+    const p = new Path(a.x, a.y, a.a);
+    p.line(80, 14);
+    return yield* this.finish([p], a, { run: 160 });
   }
 
   // Spiral loop: jump a small gap into the loop, go round, then drop out
@@ -414,6 +444,28 @@ export class Generator {
     return yield* this.finish([p], a, { maxSpeed: Math.max(19, v - 2) });
   }
 
+  // End of a map: brake to a gentle speed, ride under the finish arch and cruise on.
+  *finishLine(a, rng) {
+    const p = new Path(a.x, a.y, a.a);
+    const slope = 0.05;
+    this.turn(p, slope, a.speed);
+    p.line(40);
+    const v = this.estSpeed(a, p.y);
+    if (v > 4.5) {
+      const len = (v * v - 16) / (2 * (0.19 - G * Math.sin(slope)));
+      p.mark('brake', (q) => q.line(len, 14));
+    }
+    this.turn(p, 0.01, 4);
+    p.line(80, 14);
+    const finishAt = p.end;
+    p.line(2400, 20);
+    this.addPath(p);
+    const exit = { x: finishAt.x + 140, y: finishAt.y + Math.sin(finishAt.a) * 140, a: finishAt.a };
+    const res = yield* this.ride(a.frame, exit, { minSpeed: 1.5 });
+    if (!res.ok) return res;
+    return { ...res, end: p.end, exit, paths: [p], finishAt };
+  }
+
   // ---------------------------------------------------------------- choosing
 
   chooseKind(rng, attempt) {
@@ -454,12 +506,14 @@ export class Generator {
       case 'loop': return this.loop(a, rng);
       case 'booster': return this.booster(a, rng);
       case 'brake': return this.brake(a, rng);
+      case 'finish': return this.finishLine(a, rng);
+      case 'straight': return this.straight(a);
       default: return this.cruise(a, rng);
     }
   }
 
   // Generate and keep one new piece. Returns the piece, or null if nothing worked.
-  *next(force) {
+  *next(force, forceTries = 4) {
     if (!this.fixedBiome && this.biomeLeft <= 0 && this.biomes.length) this.switchBiome();
     if (!this.anchor) {
       const ok = yield* this.start(this.restartFrom || undefined);
@@ -467,10 +521,14 @@ export class Generator {
       return ok ? this.pieces[this.pieces.length - 1] : null;
     }
     const a = this.anchor;
-    for (let attempt = 0; attempt < 9; attempt++) {
+    const total = Math.max(10, forceTries + 4);
+    for (let attempt = 0; attempt < total; attempt++) {
       const rng = this.rng.fork();
-      const safe = attempt >= 7;
-      const kind = safe ? 'cruise' : (force && attempt < 4 ? force : this.chooseKind(rng, attempt));
+      const left = total - attempt;
+      const kind = left <= 2 ? (left === 1 ? 'straight' : 'cruise')
+        : force && attempt < forceTries ? force
+        : this.chooseKind(rng, attempt);
+      const safe = left <= 3;
       const mark = this.pending.length;
       const res = yield* this.build(kind, a, rng, safe);
       const st = (this.stats[kind] ||= { ok: 0, fail: {} });

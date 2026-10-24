@@ -8,6 +8,7 @@ import {
 import { demoLines } from './demo.js';
 import { Endless, randomSeed } from './endless.js';
 import { BIOME_BY_ID } from './gen/biomes.js';
+import { MAPS, MAP_BY_ID, buildMap, runSliced, drawThumb } from './maps.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -134,6 +135,7 @@ function setStart(p) {
 
 let saveTimer = 0;
 function trackEdited() {
+  if (app.loadingMap) app.loadingMap = false; else app.loadedMap = null;
   markDirty();
   updateButtons();
   clearTimeout(saveTimer);
@@ -435,6 +437,7 @@ function play() {
   app.mode = 'play';
   app.sub = 0;
   app.followEase = 24;
+  app.followHold = 0;
   lastTick = performance.now();
   updateButtons();
   markDirty();
@@ -506,7 +509,7 @@ function riderCenterNow() {
 
 function followCamera(instant = false) {
   const c = riderCenterNow();
-  if (app.endless) {
+  if (app.endless || app.mode === 'play' || instant) {
     // look ahead in the direction of travel so jumps show where they land
     const v = sim.frame(app.frame).velocity();
     const k = Math.min(1, 0.04 * (instant ? 25 : 1));
@@ -516,7 +519,7 @@ function followCamera(instant = false) {
     c.x += app.lead.x;
     c.y += app.lead.y;
   }
-  const box = app.endless ? 0.04 : 0.16;
+  const box = app.endless ? 0.04 : 0.08;
   const bx = (view.w * box) / view.zoom, by = (view.h * box) / view.zoom;
   let tx = view.x, ty = view.y;
   if (c.x > view.x + bx) tx = c.x - bx; else if (c.x < view.x - bx) tx = c.x + bx;
@@ -599,7 +602,7 @@ function render() {
   drawTrack(ctx, track, view, {
     colored: app.endless ? false : !playing || app.colorPlayback,
     showSides: !playing && !app.endless,
-    showBoost: !!app.endless,
+    showBoost: true,
   });
 
   // checkpoint flag (with a ghost of the rider when editing)
@@ -862,6 +865,11 @@ $('#fileInput').addEventListener('change', async (e) => {
 });
 
 async function shareLink() {
+  if (!app.endless && app.loadedMap) {
+    const url = `${location.origin}${location.pathname}#map=${app.loadedMap}`;
+    try { await navigator.clipboard.writeText(url); toast('Link to this map copied'); } catch { window.prompt('Copy this link:', url); }
+    return;
+  }
   if (app.endless) {
     const url = `${location.origin}${location.pathname}#endless=${app.endless.seed}`;
     try { await navigator.clipboard.writeText(url); toast('Link to this world copied'); } catch { window.prompt('Copy this link:', url); }
@@ -885,8 +893,10 @@ async function shareLink() {
 async function loadFromHash() {
   const m = location.hash.match(/[#&]track=([^&]+)/);
   const em = location.hash.match(/[#&]endless=(\d+)/);
-  if (em) {
-    app.pendingEndless = +em[1];
+  const mm = location.hash.match(/[#&]map=([\w-]+)/);
+  if (em || mm) {
+    if (em) app.pendingEndless = +em[1];
+    if (mm && MAP_BY_ID[mm[1]]) app.pendingMap = mm[1];
     history.replaceState(null, '', location.pathname + location.search);
     return false;
   }
@@ -911,6 +921,12 @@ function loadInitial(parsed) {
 }
 
 window.addEventListener('hashchange', async () => {
+  const mm = location.hash.match(/[#&]map=([\w-]+)/);
+  if (mm && MAP_BY_ID[mm[1]]) {
+    history.replaceState(null, '', location.pathname + location.search);
+    openMap(mm[1]);
+    return;
+  }
   const em = location.hash.match(/[#&]endless=(\d+)/);
   if (em) {
     history.replaceState(null, '', location.pathname + location.search);
@@ -1032,6 +1048,7 @@ async function init() {
   setTool('pencil');
   updateButtons();
   if (app.pendingEndless) enterEndless(app.pendingEndless);
+  else if (app.pendingMap) openMap(app.pendingMap);
   else if (!storeGet(STORE_HELP)) showHelp();
   requestAnimationFrame((t) => { lastTick = t; tick(t); });
 }
@@ -1139,6 +1156,96 @@ function showExplore() {
   closeMenu();
   $('#explore').hidden = false;
   $('#explore .card').scrollTop = 0;
+  renderMapCards();
+  buildAllMaps();
+}
+
+// ---------------------------------------------------------------------------
+// Built-in maps
+
+const builtMaps = new Map();   // id -> Promise of built map
+let cardsMade = false;
+let buildingAll = false;
+
+function ensureBuilt(id) {
+  let p = builtMaps.get(id);
+  if (!p) {
+    p = runSliced(buildMap(MAP_BY_ID[id]));
+    builtMaps.set(id, p);
+    p.then((built) => showMapInfo(id, built)).catch(() => builtMaps.delete(id));
+  }
+  return p;
+}
+
+function renderMapCards() {
+  if (cardsMade) return;
+  cardsMade = true;
+  const list = $('#mapList');
+  for (const def of MAPS) {
+    const biome = BIOME_BY_ID[def.biome];
+    const card = document.createElement('button');
+    card.className = 'map-card';
+    card.dataset.map = def.id;
+    card.style.setProperty('--tint', biome.tint);
+    card.innerHTML = '<canvas></canvas><span class="meta"><b></b><small></small><span class="tags"><span class="tag lvl"></span><span class="tag info">Building…</span></span></span>';
+    card.querySelector('b').textContent = def.name;
+    card.querySelector('small').textContent = def.desc;
+    card.querySelector('.lvl').textContent = def.level;
+    card.addEventListener('click', () => openMap(def.id));
+    list.appendChild(card);
+  }
+}
+
+function showMapInfo(id, built) {
+  const card = document.querySelector(`.map-card[data-map="${id}"]`);
+  if (!card) return;
+  drawThumb(card.querySelector('canvas'), built, BIOME_BY_ID[built.def.biome].tint);
+  const c = built.counts;
+  const secs = Math.round(built.frames / FPS);
+  const bits = [`${secs}s`];
+  if (c.loops) bits.push(`${c.loops} loop${c.loops > 1 ? 's' : ''}`);
+  if (c.flips) bits.push(`${c.flips} flip${c.flips > 1 ? 's' : ''}`);
+  card.querySelector('.info').textContent = bits.join(' · ');
+}
+
+async function buildAllMaps() {
+  if (buildingAll) return;
+  buildingAll = true;
+  for (const def of MAPS) {
+    try { await ensureBuilt(def.id); } catch { /* shown on click */ }
+  }
+}
+
+async function openMap(id) {
+  const def = MAP_BY_ID[id];
+  if (!def) return;
+  const card = document.querySelector(`.map-card[data-map="${id}"]`);
+  if (card) card.classList.add('loading');
+  if (!builtMaps.has(id)) toast(`Building ${def.name}…`, 1500);
+  let built;
+  try {
+    built = await ensureBuilt(id);
+  } catch (err) {
+    toast(`Couldn't build ${def.name}: ${err.message}`, 3500);
+    return;
+  } finally {
+    if (card) card.classList.remove('loading');
+  }
+  hideExplore();
+  $('#help').hidden = true;
+  if (app.endless) exitEndless();
+  const lines = built.lines.map((l) => {
+    const c = new Line(l.id, l.type, l.x1, l.y1, l.x2, l.y2, l.flipped, l.leftExt, l.rightExt);
+    c.style = l.style;
+    return c;
+  });
+  app.loadingMap = true;
+  replaceTrack({ start: built.start, lines }, `${def.name} — enjoy the ride!`);
+  app.loadedMap = id;
+  view.zoom = clamp(Math.min(view.w / 620, view.h / 420), 0.8, 1.8);
+  view.x = built.start.x + (view.w * 0.2) / view.zoom;
+  view.y = built.start.y + (view.h * 0.08) / view.zoom;
+  play();
 }
 function hideExplore() {
   $('#explore').hidden = true;

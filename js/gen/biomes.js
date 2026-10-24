@@ -77,7 +77,7 @@ const art = {
     // snow line drawn between the two slopes just below each peak
     for (let k = 2; k < pts.length - 1; k += 2) {
       const [px2, py2] = pts[k], [lx, ly] = pts[k - 1], [rx, ry] = pts[k + 1];
-      const f = 0.3;
+      const f = 0.22;
       const L = [px2 + (lx - px2) * f, py2 + (ly - py2) * f];
       const R = [px2 + (rx - px2) * f, py2 + (ry - py2) * f];
       const depth = Math.max(L[1], R[1]) - py2;
@@ -250,6 +250,22 @@ const art = {
   },
   grass(p, x, y, c = '#6abf69') {
     p.set(c, 1.2).line(x, y, x - 2, y - 6).line(x, y, x + 0.5, y - 7).line(x, y, x + 3, y - 5);
+  },
+  // banner arch over the track at (x, y), e.g. START / FINISH
+  arch(p, x, y, text, color = '#333') {
+    const half = Math.max(46, textWidth(text, 12) / 2 + 16);
+    const top = y - 92;
+    p.set('#555', 3).line(x - half, y + 40, x - half, top).line(x + half, y + 40, x + half, top);
+    p.set(color, 2).poly([[x - half, top], [x + half, top], [x + half, top + 22], [x - half, top + 22]], true);
+    p.set(color, 1.8).text(text, x - textWidth(text, 12) / 2, top + 5, 12);
+    // chequered strip
+    for (let i = 0; i < 12; i++) {
+      const sx = x - half + (2 * half * i) / 12;
+      p.set(i % 2 ? '#222' : '#ddd', 4).line(sx + 1, top + 26, sx + (2 * half) / 12 - 1, top + 26);
+    }
+    // pennants
+    p.set('#e0261b', 1.6).poly([[x - half, top], [x - half, top - 18], [x - half + 14, top - 13], [x - half, top - 8]]);
+    p.set('#1565e6', 1.6).poly([[x + half, top], [x + half, top - 18], [x + half - 14, top - 13], [x + half, top - 8]]);
   },
   sign(p, x, y, text, size, post = '#7a5a43', board = '#7a5a43', ink = '#333') {
     const w = textWidth(text, size) + size * 1.2;
@@ -464,8 +480,11 @@ export function decoratePiece(gen, piece, rng) {
     if (y != null) biome.sky(p, x, y - rng.range(110, 300), rng);
   }
 
+  if (info.startArch) art.arch(p, piece.start.x + 60, trackYAt(samples, piece.start.x + 60) ?? piece.start.y, 'START', '#2e7d32');
+  if (info.finishAt) art.arch(p, info.finishAt.x, info.finishAt.y, 'FINISH', '#c62828');
+
   // signs: entering a new area, and distance markers
-  if (piece.newBiome) {
+  if (piece.newBiome && piece.kind !== 'start') {
     const y = trackYAt(samples, x0 + 40) ?? piece.start.y;
     art.sign(p, x0 + 40, y + 70, biome.name, 10, '#7a5a43', '#7a5a43', '#333');
   }
