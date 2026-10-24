@@ -661,18 +661,23 @@ function updateTimeline() {
 }
 
 // The rider's path from the start, worked out a slice at a time so drawing stays smooth.
-// The line is coloured by speed (green slow, red fast), with a faint Bosh
-// every second showing which way he's facing.
+// The line is coloured by speed (green slow, red fast), with small faint
+// Boshes along it showing which way he's facing. They're spaced and sized for
+// the screen, so zooming in shows more of them, not bigger ones.
 const PATH_FRAMES = FPS * 60;
 const PATH_FAST = 16;          // this speed and up is full red
 const PATH_SHADES = 12;
 const pathColors = Array.from({ length: PATH_SHADES }, (_, i) => `hsla(${Math.round(150 - (150 * i) / (PATH_SHADES - 1))}, 85%, 45%, 0.8)`);
 const ghostPts = new Float64Array(34);
+const GHOST_GAP_PX = 46;       // screen distance between ghosts
+const GHOST_PX = 26;           // their size on screen (never bigger than life size)
+const BOSH_SIZE = 22;          // roughly how big Bosh is in world units
 function drawPath() {
   const deadline = performance.now() + 6;
   const z = view.zoom;
   let crash = null, more = false, end = null;
   const ghosts = [];
+  let along = 0, lastGhost = -99;
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -694,16 +699,29 @@ function drawPath() {
       if (prev) ctx.moveTo(prev.x, prev.y); else ctx.moveTo(c.x, c.y);
     }
     ctx.lineTo(c.x, c.y);
+    if (prev) along += Math.hypot(c.x - prev.x, c.y - prev.y);
     prev = c;
-    if (f > 0 && f % FPS === 0) ghosts.push(s);
+    if (along * z >= GHOST_GAP_PX && f - lastGhost >= 3) { ghosts.push({ s, c }); along = 0; lastGhost = f; }
     end = c;
     if (!s.mounted) { crash = c; break; }
   }
   if (shade >= 0) ctx.stroke();
   ctx.setLineDash([]);
   ctx.restore();
-  // which way he's facing, once a second
-  for (const g of ghosts) drawRider(ctx, riderPoints(g, null, 0, ghostPts), g, { alpha: 0.22 });
+  // which way he's facing (only the ones on screen)
+  const k = Math.min(1, GHOST_PX / (BOSH_SIZE * z));
+  const m = 30 / z;
+  const vx0 = view.x - view.w / 2 / z - m, vx1 = view.x + view.w / 2 / z + m;
+  const vy0 = view.y - view.h / 2 / z - m, vy1 = view.y + view.h / 2 / z + m;
+  for (const { s: g, c } of ghosts) {
+    if (c.x < vx0 || c.x > vx1 || c.y < vy0 || c.y > vy1) continue;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.scale(k, k);
+    ctx.translate(-c.x, -c.y);
+    drawRider(ctx, riderPoints(g, null, 0, ghostPts), g, { alpha: k < 1 ? 0.4 : 0.22 });
+    ctx.restore();
+  }
   ctx.save();
   if (crash) {
     // where he comes off
