@@ -43,6 +43,8 @@ Lines are solid on **one side only**, just like the original. The shaded edge is
 
 **View:** scroll or pinch to zoom · right-drag or two fingers to pan · `C` finds the rider.
 
+**Show path** (`P`, or the dotted button on the right): while you edit, a dotted line shows where Bosh will go, updating as you draw. Dots mark each second, and a red × marks where he'd crash.
+
 **Editing:** `Ctrl+Z` undo · `Ctrl+Shift+Z` redo · hold `Ctrl` while drawing to turn off snapping.
 
 ## Saving and sharing

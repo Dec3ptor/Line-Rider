@@ -47,6 +47,7 @@ const app = {
   maxFrame: 0,
   speed: 2,          // index into SPEEDS
   colorPlayback: false,
+  showPath: false,   // draw where the rider will go while editing
   dirty: true,
   followEase: 0,
   followHold: 0,     // camera stops following until this time (after the user drags)
@@ -606,6 +607,8 @@ function render() {
     showBoost: true,
   });
 
+  if (app.showPath && !app.endless && !playing) drawPath();
+
   // checkpoint flag (with a ghost of the rider when editing)
   if (app.flag >= 0) {
     const fs = sim.frame(app.flag);
@@ -655,6 +658,65 @@ function updateTimeline() {
   timeline.style.setProperty('--fill', `${(app.frame / max) * 100}%`);
   const t = formatTime(app.frame);
   if (t !== lastTimeText) { timeEl.textContent = t; lastTimeText = t; }
+}
+
+// The rider's path from the start, worked out a slice at a time so drawing stays smooth.
+const PATH_FRAMES = FPS * 60;
+function drawPath() {
+  const deadline = performance.now() + 6;
+  const z = view.zoom;
+  let crash = null, more = false, end = null;
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const dots = [];
+  for (let f = 0; f <= PATH_FRAMES; f++) {
+    if (f >= sim.computed && performance.now() > deadline) { more = true; break; }
+    const s = sim.frame(f);
+    const c = s.center();
+    if (f === 0) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
+    if (f > 0 && f % FPS === 0) dots.push(c);
+    end = c;
+    if (!s.mounted) { crash = c; break; }
+  }
+  ctx.strokeStyle = 'rgba(124, 77, 255, 0.55)';
+  ctx.lineWidth = 2 / z;
+  ctx.setLineDash([6 / z, 5 / z]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // a dot every second, so you can see speed
+  ctx.fillStyle = 'rgba(124, 77, 255, 0.75)';
+  for (const d of dots) {
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, 2.6 / z, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (crash) {
+    // where he comes off
+    const r = 7 / z;
+    ctx.strokeStyle = '#e0261b';
+    ctx.lineWidth = 2.5 / z;
+    ctx.beginPath();
+    ctx.moveTo(crash.x - r, crash.y - r); ctx.lineTo(crash.x + r, crash.y + r);
+    ctx.moveTo(crash.x + r, crash.y - r); ctx.lineTo(crash.x - r, crash.y + r);
+    ctx.stroke();
+  } else if (end && !more) {
+    ctx.fillStyle = 'rgba(124, 77, 255, 0.75)';
+    ctx.beginPath();
+    ctx.arc(end.x, end.y, 4 / z, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  if (more) markDirty();   // keep going next frame
+}
+
+function togglePath() {
+  app.showPath = !app.showPath;
+  $('#pathBtn').classList.toggle('active', app.showPath);
+  $('#pathBtn').setAttribute('aria-pressed', String(app.showPath));
+  saveSettings();
+  markDirty();
 }
 
 function updateHud(state) {
@@ -725,22 +787,26 @@ function updateButtons() {
 }
 
 function saveSettings() {
-  storeSet(STORE_SETTINGS, JSON.stringify({ colorPlayback: app.colorPlayback, speed: app.speed }));
+  storeSet(STORE_SETTINGS, JSON.stringify({ colorPlayback: app.colorPlayback, speed: app.speed, showPath: app.showPath }));
 }
 
 function loadSettings() {
   try {
     const s = JSON.parse(storeGet(STORE_SETTINGS) || '{}');
     app.colorPlayback = !!s.colorPlayback;
+    app.showPath = !!s.showPath;
     if (Number.isInteger(s.speed)) app.speed = clamp(s.speed, 0, SPEEDS.length - 1);
   } catch { /* defaults */ }
   setSpeed(app.speed);
   $('[data-action="color"]').setAttribute('aria-checked', String(app.colorPlayback));
+  $('#pathBtn').classList.toggle('active', app.showPath);
+  $('#pathBtn').setAttribute('aria-pressed', String(app.showPath));
 }
 
 for (const b of $$('[data-tool]')) b.addEventListener('click', () => setTool(b.dataset.tool));
 for (const b of $$('[data-type]')) b.addEventListener('click', () => setLineType(+b.dataset.type));
 $('#flip').addEventListener('click', toggleFlip);
+$('#pathBtn').addEventListener('click', togglePath);
 $('#undo').addEventListener('click', undo);
 $('#redo').addEventListener('click', redo);
 $('#play').addEventListener('click', togglePlay);
@@ -993,6 +1059,7 @@ window.addEventListener('keydown', (e) => {
     case '2': setLineType(LineType.ACCEL); break;
     case '3': setLineType(LineType.SCENERY); break;
     case 'f': toggleFlip(); break;
+    case 'p': togglePath(); break;
     case ' ': e.preventDefault(); if (!e.repeat) togglePlay(); break;
     case 'y': restart(); break;
     case 'u': stop(); break;
