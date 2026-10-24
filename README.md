@@ -6,6 +6,18 @@ A browser remake of the classic Flash game **Line Rider**. Draw a track, press p
 
 It runs entirely in the browser with no build step, and works with a mouse or on a phone or tablet.
 
+## Endless ride
+
+Tap the compass button (or **Menu → Endless ride & maps**) and pick **Endless ride**. The world builds itself ahead of Bosh forever: slopes, rollers, kickers, cliff drops, flips, gap jumps, steps, loop-the-loops, boosters and brakes, through eight themed areas (Frosty Peaks, Whispering Woods, Canyon Run, Neon City, Star Lanes, Lava Falls, Sunny Bay and Sugar Rush), each with its own scenery.
+
+Every piece of track is test-ridden with the real physics before it's kept. If Bosh would crash, fall off or get stuck, that piece is thrown away and another is tried. Jump landings are laid along his actual flight path, so they're smooth. Old track behind the rider is cleared away, so memory use stays flat however long you ride.
+
+`N` makes a new world. **Copy share link** shares the world you're in (`#endless=<seed>`); the same seed always builds the same world.
+
+## Built-in maps
+
+Nine maps, from easy warm-ups to the 80-second **Grand Tour** through every area: First Tracks, Alpine Descent, Canyon Run, Neon Rooftops, Orbit, Lava Falls, Sunny Bay, Sugar Rush and Grand Tour. They're built by the same generator from fixed scripts and seeds, so each one is rideable from START to FINISH. Maps load as normal tracks, so you can edit them too. Share one with `#map=<id>`, e.g. `#map=grand-tour`.
+
 ## How to play
 
 | Tool | Key | What it does |
@@ -48,7 +60,9 @@ python3 -m http.server 8000
 # then open http://localhost:8000
 ```
 
-Physics tests: `npm test` (Node 18+).
+Tests: `npm test` (Node 18+). It checks the physics, generates three endless worlds and re-rides them from scratch, and builds and re-rides every built-in map.
+
+`tools/` has the experiments used to tune the generator (curve limits, loop shapes, flip kickers, landings) and `tools/gen-soak.mjs <seed> <pieces>` for long generator runs.
 
 ## Publishing with GitHub Pages
 
