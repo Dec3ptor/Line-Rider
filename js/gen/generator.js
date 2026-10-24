@@ -9,7 +9,7 @@
 // app can spread generation over several animation frames without stutter.
 
 import { Line, LineType, P } from '../physics.js';
-import { Path, pathLines, angleDiff, makeRng } from './path.js';
+import { Path, pathLines, angleDiff, makeRng, snap } from './path.js';
 
 const G = 0.175;
 const STRIDE = 6;
@@ -75,7 +75,7 @@ export class Generator {
   // ---------------------------------------------------------------- lines
 
   addLineData(d) {
-    const l = new Line(null, d.type, d.x1, d.y1, d.x2, d.y2, d.flipped);
+    const l = new Line(null, d.type, snap(d.x1, d.type), snap(d.y1, d.type), snap(d.x2, d.type), snap(d.y2, d.type), d.flipped);
     if (d.style) l.style = d.style;
     this.track.add(l);
     if (l.collidable) this.track.linkEndpoints(l);

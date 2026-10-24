@@ -8,15 +8,19 @@ It runs entirely in the browser with no build step, and works with a mouse or on
 
 ## Endless ride
 
-Tap the compass button (or **Menu → Endless ride & maps**) and pick **Endless ride**. The world builds itself ahead of Bosh forever: slopes, rollers, kickers, cliff drops, flips, gap jumps, steps, loop-the-loops, boosters and brakes, through eight themed areas (Frosty Peaks, Whispering Woods, Canyon Run, Neon City, Star Lanes, Lava Falls, Sunny Bay and Sugar Rush), each with its own scenery.
+Tap the compass button (or **Menu → Endless ride & maps**) and pick **Endless ride**. The world builds itself ahead of Bosh forever, through eight themed areas (Frosty Peaks, Whispering Woods, Canyon Run, Neon City, Star Lanes, Lava Falls, Sunny Bay and Sugar Rush).
 
-Every piece of track is test-ridden with the real physics before it's kept. If Bosh would crash, fall off or get stuck, that piece is thrown away and another is tried. Jump landings are laid along his actual flight path, so they're smooth. Old track behind the rider is cleared away, so memory use stays flat however long you ride.
+How the track is made: the generator follows Bosh frame by frame and keeps **nudging** him. Each nudge is a small piece of track dropped right where he's about to be: a ramp, a little tap under the nose or tail, a curve, a booster or a brake, mild or extreme. It tries a dozen of them, test-rides each one with the real physics, and keeps the most exciting one that he survives: flips, reverses, dead stops, riding upside down, near misses. After a burst of nudges he's caught on a ramp laid along his flight path, and every so often there's a smooth section (a loop, a flip kicker, a gap jump) to catch his breath. New track is never allowed to change anything he has already ridden, and if it paints itself into a corner it backs up and takes another route.
+
+Every solid line is then built into the scenery: rock ledges, brick rooftops, planks, girders, posts and candy rails grow out of the track's underside, carved so they never get in Bosh's way.
+
+Trick call-outs pop up as they happen (Backflip!, Reverse!, Dead stop!, Upside down!, Huge air!). Old track behind the rider is cleared away, so memory use stays flat however long you ride.
 
 `N` makes a new world. **Copy share link** shares the world you're in (`#endless=<seed>`); the same seed always builds the same world.
 
 ## Built-in maps
 
-Nine maps, from easy warm-ups to the 80-second **Grand Tour** through every area: First Tracks, Alpine Descent, Canyon Run, Neon Rooftops, Orbit, Lava Falls, Sunny Bay, Sugar Rush and Grand Tour. They're built by the same generator from fixed scripts and seeds, so each one is rideable from START to FINISH. Maps load as normal tracks, so you can edit them too. Share one with `#map=<id>`, e.g. `#map=grand-tour`.
+Nine maps, from easy warm-ups to the two-minute **Grand Tour** through every area: First Tracks, Sunny Bay, Alpine Descent, Canyon Run, Sugar Rush, Neon Rooftops, Lava Falls, Orbit and Grand Tour. Each is a run of the endless generator with a fixed seed, area and wildness, ending at a FINISH gate. They're built ahead of time into `maps/*.json` (`npm run build-maps`), so they load instantly. Maps load as normal tracks, so you can edit them too. Share one with `#map=<id>`, e.g. `#map=grand-tour`.
 
 ## How to play
 
@@ -60,9 +64,9 @@ python3 -m http.server 8000
 # then open http://localhost:8000
 ```
 
-Tests: `npm test` (Node 18+). It checks the physics, generates three endless worlds and re-rides them from scratch, and builds and re-rides every built-in map.
+Tests: `npm test` (Node 18+). It checks the physics, test-rides the smooth-section generator, re-rides every built-in map file from START to FINISH, and rides two endless worlds for a couple of minutes the way the app does (building ahead, clearing behind).
 
-`tools/` has the experiments used to tune the generator (curve limits, loop shapes, flip kickers, landings) and `tools/gen-soak.mjs <seed> <pieces>` for long generator runs.
+`tools/` has the experiments used to tune the generators (curve limits, loop shapes, flip kickers, landings), `tools/chaos-batch.mjs <seconds> <seeds>` for long runs with trick counts, and `tools/viz.mjs` to draw a generated stretch of track to an HTML page.
 
 ## Publishing with GitHub Pages
 

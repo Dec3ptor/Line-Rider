@@ -16,6 +16,9 @@ const CELL = 14;                 // physics grid cell size
 // ---------------------------------------------------------------------------
 // Lines
 
+// sqrt is exactly rounded everywhere (Math.hypot isn't), so rides match in every browser
+const dist = (x, y) => Math.sqrt(x * x + y * y);
+
 export class Line {
   constructor(id, type, x1, y1, x2, y2, flipped = false, leftExt = false, rightExt = false) {
     this.id = id;
@@ -279,13 +282,13 @@ const CONSTRAINT_DEFS = [
   [REPEL, SHOULDER, LFOOT], [REPEL, SHOULDER, RFOOT],
 ];
 const CONSTRAINTS = CONSTRAINT_DEFS.map(([type, a, b]) => {
-  let rest = Math.hypot(POINTS[a][0] - POINTS[b][0], POINTS[a][1] - POINTS[b][1]);
+  let rest = dist(POINTS[a][0] - POINTS[b][0], POINTS[a][1] - POINTS[b][1]);
   if (type === REPEL) rest *= 0.5;
   return { type, a, b, rest, endurance: ENDURANCE * rest * 0.5 };
 });
 const SCARF_LENGTHS = SCARF_START.map((p, i) => {
   const prev = i === 0 ? POINTS[SHOULDER] : SCARF_START[i - 1];
-  return Math.hypot(p[0] - prev[0], p[1] - prev[1]);
+  return dist(p[0] - prev[0], p[1] - prev[1]);
 });
 
 export class RiderState {
@@ -293,6 +296,7 @@ export class RiderState {
     this.p = p;
     this.mounted = mounted;
     this.sledIntact = sledIntact;
+    this.contacts = 0;
     this.minX = 0; this.minY = 0; this.maxX = 0; this.maxY = 0;
   }
   clone() {
@@ -352,12 +356,12 @@ function stickResolve(p, a, b, diff) {
 
 function collide(line, p, i) {
   const o = i * STRIDE;
-  if (line.nx * p[o + 4] + line.ny * p[o + 5] <= 0) return; // not moving into the line
+  if (line.nx * p[o + 4] + line.ny * p[o + 5] <= 0) return 0; // not moving into the line
   const offX = p[o] - line.x1, offY = p[o + 1] - line.y1;
   const perp = line.nx * offX + line.ny * offY;
-  if (!(perp > 0 && perp < ZONE)) return;
+  if (!(perp > 0 && perp < ZONE)) return 0;
   const along = (line.dx * offX + line.dy * offY) * line.invLenSq;
-  if (along < line.lb || along > line.rb) return;
+  if (along < line.lb || along > line.rb) return 0;
   const x = p[o] - line.nx * perp;
   const y = p[o + 1] - line.ny * perp;
   // friction: drag the previous position along the line to bleed off speed
@@ -369,6 +373,7 @@ function collide(line, p, i) {
   let px = p[o + 2] + fx, py = p[o + 3] + fy;
   if (line.type === LineType.ACCEL) { px += line.ax; py += line.ay; }
   p[o] = x; p[o + 1] = y; p[o + 2] = px; p[o + 3] = py;
+  return 1;
 }
 
 function cross(ax, ay, bx, by) { return ax * by - ay * bx; }
@@ -398,11 +403,12 @@ export function stepRider(prev, track) {
 
   // 2. constraints + collisions, several passes
   const grid = track.physicsGrid;
+  let contacts = 0;
   for (let it = 0; it < ITERATIONS; it++) {
     for (let c = 0; c < CONSTRAINTS.length; c++) {
       const k = CONSTRAINTS[c];
       const oa = k.a * STRIDE, ob = k.b * STRIDE;
-      const len = Math.hypot(p[oa] - p[ob], p[oa + 1] - p[ob + 1]);
+      const len = dist(p[oa] - p[ob], p[oa + 1] - p[ob + 1]);
       if (k.type === REPEL && len >= k.rest) continue;
       if (k.type === BIND && !s.mounted) continue;
       const diff = len === 0 ? 0 : ((len - k.rest) / len) * 0.5;
@@ -416,11 +422,13 @@ export function stepRider(prev, track) {
         for (let dy = -1; dy <= 1; dy++) {
           const lines = grid.cellAt(gx + dx, gy + dy);
           if (!lines) continue;
-          for (let l = 0; l < lines.length; l++) collide(lines[l], p, i);
+          for (let l = 0; l < lines.length; l++) contacts += collide(lines[l], p, i);
         }
       }
     }
   }
+
+  s.contacts = contacts;   // how many times the rider touched a line this frame
 
   // 3. crash checks (sled flipped / rider flipped relative to sled)
   const X = (i) => p[i * STRIDE], Y = (i) => p[i * STRIDE + 1];
@@ -435,7 +443,7 @@ export function stepRider(prev, track) {
   let ax = X(SHOULDER), ay = Y(SHOULDER);
   for (let i = 0; i < SCARF_COUNT; i++) {
     const o = (CONTACT_COUNT + i) * STRIDE;
-    const len = Math.hypot(ax - p[o], ay - p[o + 1]);
+    const len = dist(ax - p[o], ay - p[o + 1]);
     const d = len === 0 ? 0 : (len - SCARF_LENGTHS[i]) / len;
     p[o] += (ax - p[o]) * d;
     p[o + 1] += (ay - p[o + 1]) * d;
@@ -455,6 +463,8 @@ export class Simulator {
   constructor(track) {
     this.track = track;
     this.base = 0;          // absolute index of frames[0] (older frames can be dropped)
+    this.protectUntil = 0;
+    this.pinned = -1;       // frame set by setState (endless respawns)
     this.frames = [makeRider(track.start)];
     this.crashFrame = -1;
     track.onChange((kind, line) => {
@@ -465,6 +475,7 @@ export class Simulator {
 
   reset() {
     this.base = 0;
+    this.pinned = -1;
     this.frames = [makeRider(this.track.start)];
     this.crashFrame = -1;
   }
@@ -481,7 +492,8 @@ export class Simulator {
     for (let i = 0; i < f.length; i++) {
       const s = f[i];
       if (s.maxX >= x0 && s.minX <= x1 && s.maxY >= y0 && s.minY <= y1) {
-        this.truncate(this.base + Math.max(1, i));
+        // frames up to `protectUntil` are known not to be affected (the generator checks first)
+        this.truncate(Math.max(this.base + Math.max(1, i), this.protectUntil + 1));
         return;
       }
     }
@@ -500,6 +512,7 @@ export class Simulator {
 
   // keep frames before absolute index `len`
   truncate(len) {
+    len = Math.max(len, this.pinned + 1);   // a placed rider is never recomputed
     const keep = Math.max(1, len - this.base);
     if (this.frames.length > keep) this.frames.length = keep;
     if (this.crashFrame >= this.base + keep) this.crashFrame = -1;
@@ -515,10 +528,12 @@ export class Simulator {
 
   // replace the rider at frame n (endless mode respawn)
   setState(n, state) {
+    this.pinned = -1;
     this.truncate(n);
     this.frames.length = Math.max(0, n - this.base);
     state.computeBounds();
     this.frames.push(state);
+    this.pinned = n;
     if (this.crashFrame >= n) this.crashFrame = -1;
   }
 

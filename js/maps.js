@@ -1,91 +1,88 @@
-// Built-in maps. Each one is a script of track pieces in a themed area, built
-// by the same test-riding generator as endless mode, so every map is rideable
-// from START to FINISH. The same seed always builds the same map.
+// Built-in maps. Each one is a run of the endless-mode generator with a fixed
+// seed, area and wildness, ending at a FINISH gate. They're built ahead of
+// time by tools/build-maps.mjs into maps/<id>.json, so they load instantly and
+// ride exactly the same in every browser.
 
-import { Track, Line, Simulator, LineType } from './physics.js';
-import { Generator } from './gen/generator.js';
-import { BIOME_BY_ID, decoratePiece } from './gen/biomes.js';
+import { Track, Line, Simulator, LineType, FPS } from './physics.js';
+import { ChaosGenerator } from './gen/chaos.js';
+import { BIOME_BY_ID } from './gen/biomes.js';
+import { serialize, parseTrack } from './storage.js';
 
 export const MAPS = [
   {
-    id: 'first-tracks', name: 'First Tracks', biome: 'forest', seed: 1101, level: 'Easy',
-    desc: 'A gentle warm-up through the woods: rolling hills, small jumps and a boost.',
-    script: ['cruise', 'rollers', 'kicker', 'cruise', 'gaps', 'booster', 'kicker', 'rollers', 'drop', 'cruise', 'kicker', 'rollers', 'gaps', 'kicker', 'finish'],
+    id: 'first-tracks', name: 'First Tracks', biome: 'forest', seed: 1101, level: 'Easy', wild: 0.25, secs: 40,
+    desc: 'A gentle warm-up through the woods: bumps, small jumps and the odd surprise.',
   },
   {
-    id: 'alpine', name: 'Alpine Descent', biome: 'alpine', seed: 2202, level: 'Medium',
-    desc: 'Big air between snowy peaks, with loops and flips on the way down.',
-    script: ['kicker', 'drop', 'rollers', 'kicker', 'loop', 'drop', 'steps', 'flip', 'kicker', 'drop', 'rollers', 'kicker', 'flip', 'drop', 'loop', 'kicker', 'finish'],
-  },
-  {
-    id: 'canyon', name: 'Canyon Run', biome: 'desert', seed: 3303, level: 'Medium',
-    desc: 'Cliff drops and broken bridges across the mesas.',
-    script: ['drop', 'steps', 'gaps', 'drop', 'cruise', 'kicker', 'drop', 'steps', 'gaps', 'drop', 'kicker', 'steps', 'flip', 'gaps', 'drop', 'finish'],
-  },
-  {
-    id: 'neon', name: 'Neon Rooftops', biome: 'city', seed: 4404, level: 'Hard',
-    desc: 'Hop the gaps between skyscrapers, then loop the loop over the city.',
-    script: ['gaps', 'steps', 'booster', 'loop', 'gaps', 'steps', 'kicker', 'loop', 'gaps', 'drop', 'loop', 'steps', 'flip', 'gaps', 'loop', 'finish'],
-  },
-  {
-    id: 'orbit', name: 'Orbit', biome: 'space', seed: 5505, level: 'Hard',
-    desc: 'Loops, flips and huge jumps among the planets.',
-    script: ['kicker', 'loop', 'flip', 'drop', 'booster', 'loop', 'kicker', 'flip', 'loop', 'drop', 'flip', 'kicker', 'loop', 'flip', 'finish'],
-  },
-  {
-    id: 'lava', name: 'Lava Falls', biome: 'volcano', seed: 6606, level: 'Hard',
-    desc: 'Drop after drop past erupting volcanoes. Mind the flips.',
-    script: ['drop', 'flip', 'drop', 'kicker', 'steps', 'drop', 'flip', 'gaps', 'drop', 'kicker', 'flip', 'steps', 'drop', 'finish'],
-  },
-  {
-    id: 'bay', name: 'Sunny Bay', biome: 'beach', seed: 7707, level: 'Easy',
+    id: 'bay', name: 'Sunny Bay', biome: 'beach', seed: 7707, level: 'Easy', wild: 0.35, secs: 45,
     desc: 'A breezy boardwalk ride past palm trees and sailboats.',
-    script: ['rollers', 'cruise', 'kicker', 'rollers', 'loop', 'rollers', 'kicker', 'cruise', 'kicker', 'rollers', 'gaps', 'rollers', 'kicker', 'finish'],
   },
   {
-    id: 'sugar', name: 'Sugar Rush', biome: 'candy', seed: 8808, level: 'Medium',
-    desc: 'Loops, lollipops and candy-cane rails.',
-    script: ['rollers', 'loop', 'gaps', 'loop', 'rollers', 'flip', 'loop', 'kicker', 'rollers', 'loop', 'gaps', 'flip', 'loop', 'finish'],
+    id: 'alpine', name: 'Alpine Descent', biome: 'alpine', seed: 2202, level: 'Medium', wild: 0.55, secs: 50,
+    desc: 'Big air between snowy peaks, with flips and switchbacks on the way down.',
   },
   {
-    id: 'grand-tour', name: 'Grand Tour', biome: 'forest', seed: 9909, level: 'Epic',
+    id: 'canyon', name: 'Canyon Run', biome: 'desert', seed: 3303, level: 'Medium', wild: 0.6, secs: 50,
+    desc: 'Ricochet between the mesas, bounce off ledges and drop into the canyon.',
+  },
+  {
+    id: 'sugar', name: 'Sugar Rush', biome: 'candy', seed: 8808, level: 'Medium', wild: 0.65, secs: 50,
+    desc: 'Loops, lollipops and candy-cane rails, with plenty of reverses.',
+  },
+  {
+    id: 'neon', name: 'Neon Rooftops', biome: 'city', seed: 4404, level: 'Hard', wild: 0.85, secs: 60,
+    desc: 'Bounce between skyscrapers: flips, dead stops and back-and-forth chaos.',
+  },
+  {
+    id: 'lava', name: 'Lava Falls', biome: 'volcano', seed: 6606, level: 'Hard', wild: 0.85, secs: 60,
+    desc: 'Drop after drop past erupting volcanoes. Mind the flips.',
+  },
+  {
+    id: 'orbit', name: 'Orbit', biome: 'space', seed: 5505, level: 'Hard', wild: 1, secs: 60,
+    desc: 'The wildest one: flips, reverses and huge jumps among the planets.',
+  },
+  {
+    id: 'grand-tour', name: 'Grand Tour', biome: 'forest', seed: 9909, level: 'Epic', wild: null, secs: 110,
+    tour: ['forest', 'beach', 'alpine', 'desert', 'candy', 'city', 'volcano', 'space'],
     desc: 'The long one: a ride through all eight areas with every kind of trick.',
-    script: [
-      'rollers', 'kicker', 'gaps', { biome: 'alpine' }, 'drop', 'kicker', 'loop', 'flip', { biome: 'desert' }, 'steps', 'gaps', 'drop', 'kicker',
-      { biome: 'city' }, 'gaps', 'loop', 'steps', 'loop', { biome: 'space' }, 'flip', 'loop', 'kicker', 'flip', { biome: 'volcano' }, 'drop', 'flip', 'steps',
-      { biome: 'beach' }, 'rollers', 'kicker', 'loop', { biome: 'candy' }, 'loop', 'rollers', 'flip', 'loop', 'finish',
-    ],
   },
 ];
 
 export const MAP_BY_ID = Object.fromEntries(MAPS.map((m) => [m.id, m]));
 
-// Builds a map step by step (yields so the page stays responsive).
+// Builds a map from scratch (tools/build-maps.mjs; yields so it can run in slices).
 // Result: { def, start, lines: Line[], frames, counts }
 export function* buildMap(def) {
   const track = new Track();
   const sim = new Simulator(track);
-  const gen = new Generator(track, sim, {
-    seed: def.seed, map: true, biome: BIOME_BY_ID[def.biome], decorate: decoratePiece,
-  });
-  const first = yield* gen.next();
-  if (!first) throw new Error('could not start the map');
-  for (const step of def.script) {
-    if (typeof step === 'object') {
-      if (step.biome) gen.setBiome(BIOME_BY_ID[step.biome]);
-      continue;
-    }
-    // loops and flips need some speed: add a boost first if Bosh is slow
-    if ((step === 'loop' || step === 'flip') && gen.anchor.speed < 9) yield* gen.next('booster');
-    let piece = yield* gen.next(step, step === 'flip' || step === 'loop' ? 12 : 6);
-    if (!piece && step === 'finish') piece = yield* gen.next('finish');
-    if (!piece) throw new Error(`could not build "${step}"`);
+  const opts = { seed: def.seed, map: true, level: def.wild };
+  if (def.tour) {
+    opts.biomeOrder = def.tour.map((id) => BIOME_BY_ID[id]);
+    opts.biomeEvery = [Math.round((def.secs * FPS) / def.tour.length) - 40, Math.round((def.secs * FPS) / def.tour.length) + 40];
+  } else {
+    opts.biome = BIOME_BY_ID[def.biome];
   }
-  const counts = { loops: 0, flips: 0, jumps: 0 };
+  const gen = new ChaosGenerator(track, sim, opts);
+  while (gen.F < def.secs * FPS) {
+    if (!(yield* gen.next())) throw new Error(`stuck at ${(gen.F / FPS).toFixed(1)}s`);
+  }
+  // then catch Bosh and bring him in to the finish
+  gen.flowKind = 'finish';
+  gen.minUndoFrame = gen.F - 300;   // keep the length: no backing up far
+  const done = () => gen.chunks.some((c) => c.kind === 'flow:finish');
+  for (let i = 0; i < 200 && !done(); i++) {
+    gen.nextFlow = gen.F;
+    if (!(yield* gen.next())) throw new Error('could not finish');
+  }
+  if (!done()) throw new Error('could not finish');
+  gen.dressSettled(true);
+  const counts = { loops: 0, flips: 0, jumps: 0, reverses: 0, stops: 0 };
   for (const e of gen.events) {
     if (e.type === 'loop') counts.loops += e.count || 1;
-    if (e.type === 'flip') counts.flips++;
+    if (e.type === 'flip') counts.flips += e.count || 1;
     if (e.type === 'air') counts.jumps++;
+    if (e.type === 'reverse') counts.reverses++;
+    if (e.type === 'stop') counts.stops++;
   }
   // fresh copies with ids in the same order, so the ride is identical in the editor
   const sorted = [...track.lines.values()].sort((a, b) => a.id - b.id);
@@ -94,7 +91,27 @@ export function* buildMap(def) {
     if (l.style) c.style = l.style;
     return c;
   });
-  return { def, start: { ...track.start }, lines, frames: gen.anchor.frame, counts };
+  return { def, start: { ...track.start }, lines, frames: gen.F, counts };
+}
+
+// The file format for a built map: a normal saved track plus a little info.
+export function mapToJSON(built) {
+  const track = new Track();
+  track.start = built.start;
+  for (const l of built.lines) track.add(l);
+  return { ...serialize(track, built.def.name), frames: built.frames, counts: built.counts };
+}
+
+export function mapFromJSON(def, data) {
+  const t = parseTrack(data);
+  return { def, start: t.start, lines: t.lines, frames: data.frames, counts: data.counts || {} };
+}
+
+// Fetch a prebuilt map (browser).
+export async function loadMap(def) {
+  const res = await fetch(`maps/${def.id}.json`);
+  if (!res.ok) throw new Error(`couldn't load (${res.status})`);
+  return mapFromJSON(def, await res.json());
 }
 
 // Run a builder in small time slices.

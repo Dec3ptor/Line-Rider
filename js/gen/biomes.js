@@ -351,7 +351,7 @@ function trackYAt(samples, x) {
 
 export const BIOMES = [
   {
-    id: 'alpine', name: 'Frosty Peaks', tint: '#eef5fc',
+    id: 'alpine', chaos: 0.75, name: 'Frosty Peaks', tint: '#eef5fc',
     weights: { kicker: 3.5, drop: 2.5, flip: 2.5, rollers: 2 },
     underlay: ['snow', '#9fc0e0', '#9fc0e0'], posts: '#8a6a50',
     big: (p, x, y, rng) => art.mountain(p, x, y + rng.range(120, 260), rng.range(300, 600), rng.range(220, 420), rng),
@@ -359,7 +359,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => rng.chance(0.7) ? art.cloud(p, x, y, rng.range(50, 110)) : art.bird(p, x, y, 8),
   },
   {
-    id: 'forest', name: 'Whispering Woods', tint: '#f0f8ec',
+    id: 'forest', chaos: 0.55, name: 'Whispering Woods', tint: '#f0f8ec',
     weights: { rollers: 3, gaps: 2.5, kicker: 2.5, cruise: 2 },
     underlay: ['hatch', '#a1887f', '#6abf69'], posts: '#8d6e63',
     big: (p, x, y, rng) => { for (let k = 0; k < 4; k++) art.pine(p, x + k * 22 + rng.range(-6, 6), y + rng.range(60, 120), rng.range(60, 110), '#2f8a4a'); },
@@ -372,7 +372,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => rng.chance(0.25) ? art.sun(p, x, y, 16, '#f4c542') : art.bird(p, x, y, rng.range(6, 10)),
   },
   {
-    id: 'desert', name: 'Canyon Run', tint: '#fdf5e8',
+    id: 'desert', chaos: 0.8, name: 'Canyon Run', tint: '#fdf5e8',
     weights: { drop: 3.5, steps: 2.5, gaps: 2, kicker: 2.5 },
     underlay: ['hatch', '#d7a77a', '#d7a77a'], posts: '#b08d6c',
     big: (p, x, y, rng) => art.mesa(p, x, y + rng.range(140, 260), rng.range(220, 420), rng.range(140, 260), rng),
@@ -380,7 +380,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => rng.chance(0.2) ? art.sun(p, x, y, 18) : art.bird(p, x, y, 9, '#8a6a50'),
   },
   {
-    id: 'city', name: 'Neon City', tint: '#f3f2f9',
+    id: 'city', chaos: 0.95, name: 'Neon City', tint: '#f3f2f9',
     weights: { gaps: 3, steps: 3, loop: 2.5, kicker: 2.5, booster: 0.5 },
     underlay: ['truss', '#7d8597', '#9aa1b1'], posts: '#7d8597',
     big: (p, x, y, rng) => {
@@ -395,7 +395,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => rng.chance(0.5) ? art.moon(p, x, y, 14) : art.star(p, x, y, 4),
   },
   {
-    id: 'space', name: 'Star Lanes', tint: '#eeedf8',
+    id: 'space', chaos: 1.0, name: 'Star Lanes', tint: '#eeedf8',
     weights: { loop: 3.5, flip: 3, kicker: 2.5, drop: 2, rollers: 1 },
     underlay: ['rail', '#8e7cc3', '#c5b0f0'], posts: null,
     big: (p, x, y, rng) => art.planet(p, x, y - rng.range(120, 240), rng.range(20, 42)),
@@ -403,7 +403,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => rng.chance(0.75) ? art.star(p, x, y, rng.range(3, 6)) : art.ufo(p, x, y, rng.range(14, 22)),
   },
   {
-    id: 'volcano', name: 'Lava Falls', tint: '#fcf0ea',
+    id: 'volcano', chaos: 0.85, name: 'Lava Falls', tint: '#fcf0ea',
     weights: { drop: 3, kicker: 3, flip: 2.5, gaps: 2 },
     underlay: ['hatch', '#6d5d57', '#ef7b4a'], posts: '#6d5d57',
     big: (p, x, y, rng) => art.volcano(p, x, y + rng.range(160, 260), rng.range(260, 420), rng.range(160, 260)),
@@ -411,7 +411,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => p.set('#b0a59f', 1.5).circle(x, y, rng.range(8, 16)),
   },
   {
-    id: 'beach', name: 'Sunny Bay', tint: '#edf8fa',
+    id: 'beach', chaos: 0.5, name: 'Sunny Bay', tint: '#edf8fa',
     weights: { rollers: 3, cruise: 2.5, kicker: 2.5, loop: 2 },
     underlay: ['planks', '#b08d6c', '#b08d6c'], posts: '#a1887f',
     big: (p, x, y, rng) => { const yy = y + rng.range(140, 220); art.waves(p, x - 120, yy, 240); art.waves(p, x - 100, yy + 14, 200); if (rng.chance(0.6)) art.boat(p, x + rng.range(-60, 60), yy - 4, rng.range(14, 22)); },
@@ -419,7 +419,7 @@ export const BIOMES = [
     sky: (p, x, y, rng) => rng.chance(0.3) ? art.sun(p, x, y, 18) : art.bird(p, x, y, 8),
   },
   {
-    id: 'candy', name: 'Sugar Rush', tint: '#fdf0f6',
+    id: 'candy', chaos: 0.8, name: 'Sugar Rush', tint: '#fdf0f6',
     weights: { loop: 3, rollers: 3, gaps: 2, flip: 2 },
     underlay: ['stripes', '#f49cc4', '#8fdcc6'], posts: '#ec6fa8',
     big: (p, x, y, rng) => { for (let k = 0; k < 3; k++) art.gumdrop(p, x + k * 40 - 40, y + rng.range(120, 200), rng.range(14, 26), rng.pick(['#ec6fa8', '#4cc9a7', '#f6c945', '#8e7cc3'])); },

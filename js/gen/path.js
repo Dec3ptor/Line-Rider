@@ -70,7 +70,8 @@ export class Path {
 
 // Convert a path to line data. Brake ranges are drawn backwards and flipped,
 // so they stay solid underneath but push against the direction of travel.
-export function pathLines(path, baseType = 0) {
+// `flipped` makes the path solid on its left instead (for riding upside down).
+export function pathLines(path, baseType = 0, flipped = false) {
   const out = [];
   const typeAt = (i) => {
     for (const m of path.marks) if (i >= m.from && i < m.to) return m.type;
@@ -82,8 +83,8 @@ export function pathLines(path, baseType = 0) {
     let t = typeAt(i);
     if (t === 'brake/2') t = i % 2 ? 'brake' : baseType;   // gentler: every other segment
     if (t === 'boost/2') t = i % 2 ? 1 : baseType;
-    if (t === 'brake') out.push({ type: 1, x1: x2, y1: y2, x2: x1, y2: y1, flipped: true });
-    else out.push({ type: t, x1, y1, x2, y2, flipped: false });
+    if (t === 'brake') out.push({ type: 1, x1: x2, y1: y2, x2: x1, y2: y1, flipped: !flipped });
+    else out.push({ type: t, x1, y1, x2, y2, flipped });
   }
   return out;
 }
@@ -121,4 +122,10 @@ export function makeRng(seed) {
     fork: () => makeRng(Math.floor(next() * 4294967296)),
   };
   return rng;
+}
+
+// Line coordinates go on a fixed grid so a saved track rides exactly like the
+// generated one (track: 0.001, scenery: 0.01).
+export function snap(v, type) {
+  return type === 2 ? Math.round(v * 100) / 100 : Math.round(v * 1000) / 1000;
 }

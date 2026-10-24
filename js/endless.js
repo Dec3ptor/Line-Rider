@@ -1,23 +1,23 @@
 // Endless mode: a world that keeps building itself ahead of the rider.
-import { Track, Simulator, makeRider, FPS } from './physics.js';
-import { Generator } from './gen/generator.js';
-import { BIOMES, decoratePiece } from './gen/biomes.js';
+import { Track, Simulator, FPS } from './physics.js';
+import { ChaosGenerator } from './gen/chaos.js';
+import { BIOMES } from './gen/biomes.js';
 
-const AHEAD = FPS * 12;        // keep this many verified frames ahead of the rider
-const KEEP_BEHIND = FPS * 10;  // frames of history kept for the camera/timeline
+const AHEAD = FPS * 16;        // keep this many checked frames ahead of the rider
+const KEEP_BEHIND = FPS * 10;  // frames of history kept for the camera
 const PRUNE_EVERY = FPS * 4;
+const UNDO_WINDOW = FPS * 10;  // the generator may back up this far; the rider plays only what's behind it
 
 export class Endless {
   constructor(seed) {
     this.seed = seed >>> 0;
     this.track = new Track();
     this.sim = new Simulator(this.track);
-    this.gen = new Generator(this.track, this.sim, { seed: this.seed, biomes: BIOMES, decorate: decoratePiece });
+    this.gen = new ChaosGenerator(this.track, this.sim, { seed: this.seed, biomes: BIOMES, undoWindow: UNDO_WINDOW });
     this.task = null;
     this.lastPrune = 0;
-    this.eventPos = 0;
     this.biome = null;
-    this.stats = { jumps: 0, flips: 0, loops: 0, bestAir: 0 };
+    this.stats = { jumps: 0, flips: 0, loops: 0, reverses: 0, stops: 0, bestAir: 0 };
     this.crashAt = -1;
     this.stuck = false;
   }
@@ -29,44 +29,43 @@ export class Endless {
     const deadline = performance.now() + budgetMs;
     while (performance.now() < deadline) {
       if (!this.task) {
-        if (this.gen.anchor && this.verified > frame + AHEAD) return false;
+        if (this.stuck) return false;
+        if (this.gen.started && this.verified > frame + AHEAD) return false;
         this.task = this.gen.next();
       }
       const r = this.task.next();
       if (r.done) {
         this.task = null;
-        if (!r.value) this.stuck = true;   // nothing fitted: restart further on when the rider gets there
-        if (this.stuck) return false;
+        if (!r.value) { this.stuck = true; return false; }   // dead end: start afresh when Bosh gets there
       }
     }
     return true;
   }
 
-  // Frame the rider may advance to.
+  // Frame the rider may advance to: track up to there is final.
   get playableFrame() {
-    return this.stuck ? Infinity : this.verified;
+    return this.stuck ? this.verified : this.gen.locked;
   }
 
   // Called once per animation frame with the current playback frame.
-  // Returns new events that the rider has just reached.
+  // Returns the events the rider has just reached.
   update(frame) {
     const fresh = [];
-    const ev = this.gen.events;
-    // events array is pruned from the front, so track by frame not index
-    for (const e of ev) {
-      if (e.frame > frame) break;
-      if (e.seen) continue;
+    for (const e of this.gen.events) {
+      // air time is reported where the jump started, but shown on landing
+      const at = e.type === 'air' ? e.frame + e.air : e.frame;
+      if (e.seen || at > frame) continue;
       e.seen = true;
       fresh.push(e);
+      const st = this.stats;
       if (e.type === 'biome') this.biome = e.biome;
-      if (e.type === 'air') {
-        this.stats.jumps++;
-        this.stats.bestAir = Math.max(this.stats.bestAir, e.air);
-      }
-      if (e.type === 'flip') this.stats.flips++;
-      if (e.type === 'loop') this.stats.loops += e.count || 1;
+      else if (e.type === 'air') { st.jumps++; st.bestAir = Math.max(st.bestAir, e.air); }
+      else if (e.type === 'flip') st.flips += e.count || 1;
+      else if (e.type === 'loop') st.loops += e.count || 1;
+      else if (e.type === 'reverse') st.reverses++;
+      else if (e.type === 'stop') st.stops++;
     }
-    if (!this.biome && this.gen.pieces.length) this.biome = this.gen.pieces[this.gen.pieces.length - 1].biome;
+    if (!this.biome) this.biome = this.gen.biome;
 
     if (frame - this.lastPrune > PRUNE_EVERY) {
       this.lastPrune = frame;
@@ -75,13 +74,14 @@ export class Endless {
       this.gen.pruneBefore(keepFrom - FPS * 5);
     }
 
-    // safety net: should never happen because every piece is test-ridden
+    // Safety net. Every bit of track is test-ridden, so this should only
+    // happen when the generator hit a dead end it couldn't back out of.
     const s = this.sim.frame(frame);
     if (!s.mounted || (this.stuck && frame >= this.verified)) {
       if (this.crashAt < 0) this.crashAt = frame;
       if (frame - this.crashAt > FPS * 1.5 || this.stuck) {
+        fresh.push({ type: 'respawn', why: s.mounted ? 'stuck' : 'crash' });
         this.respawn(frame);
-        fresh.push({ type: 'respawn' });
       }
     } else {
       this.crashAt = -1;
@@ -89,14 +89,14 @@ export class Endless {
     return fresh;
   }
 
+  // Put Bosh on a fresh start ramp past everything built so far.
   respawn(frame) {
-    const end = this.gen.anchor || { x: 0, y: 0 };
-    const pos = { x: Math.round(end.x + 400), y: Math.round(end.y - 60) };
     if (this.task) { this.task.return?.(); this.task = null; }
-    this.gen.rollbackTo(0);
-    this.sim.setState(frame, makeRider(pos));
-    this.gen.anchor = null;
-    this.gen.restartFrom = { x: pos.x, y: pos.y, frame };
+    let maxX = -Infinity;
+    for (const ch of this.gen.chunks.slice(-12)) for (const l of ch.lines) maxX = Math.max(maxX, l.maxX);
+    const c = this.sim.frame(Math.min(frame, this.verified)).center();
+    const pos = { x: Math.round(Math.max(maxX, c.x) + 400), y: Math.round(c.y - 60) };
+    this.gen.restartAt(pos, frame);
     this.crashAt = -1;
     this.stuck = false;
   }

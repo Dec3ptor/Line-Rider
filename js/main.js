@@ -8,7 +8,7 @@ import {
 import { demoLines } from './demo.js';
 import { Endless, randomSeed } from './endless.js';
 import { BIOME_BY_ID } from './gen/biomes.js';
-import { MAPS, MAP_BY_ID, buildMap, runSliced, drawThumb } from './maps.js';
+import { MAPS, MAP_BY_ID, loadMap, drawThumb } from './maps.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -663,7 +663,7 @@ function updateHud(state) {
     const st = E.stats;
     const n = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
     const text = `${E.distance(app.frame)} m  ·  speed ${Math.hypot(v.x, v.y).toFixed(1)}\n`
-      + `${n(st.jumps, 'jump')}  ·  ${n(st.flips, 'flip')}  ·  ${n(st.loops, 'loop')}`;
+      + `${n(st.flips, 'flip')}  ·  ${n(st.reverses, 'reverse')}  ·  ${n(st.stops, 'stop')}${st.loops ? `  ·  ${n(st.loops, 'loop')}` : ''}`;
     if (text !== lastHud) { lastHud = text; hud.textContent = text; }
     return;
   }
@@ -1139,14 +1139,15 @@ function handleEndlessEvents(events) {
       showBanner(e.name);
       $('#areaName').textContent = e.name;
       app.bgTarget = hexToRgb(e.biome.tint);
-    } else if (e.type === 'flip' || e.type === 'loop') {
+    } else if (e.label && e.type !== 'air') {
+      // flips, loops, reverses, dead stops, upside down...
       showTrick(e.label);
     } else if (e.type === 'air' && e.air >= 70) {
       showTrick(`Huge air! ${(e.air / FPS).toFixed(1)}s`);
     } else if (e.type === 'respawn') {
       app.followEase = 40;
       app.followHold = 0;
-      toast('Wipeout! Back on the sled…');
+      toast(e.why === 'crash' ? 'Wipeout! Back on the sled…' : 'Dead end! Starting a new run…');
     }
   }
 }
@@ -1170,7 +1171,7 @@ let buildingAll = false;
 function ensureBuilt(id) {
   let p = builtMaps.get(id);
   if (!p) {
-    p = runSliced(buildMap(MAP_BY_ID[id]));
+    p = loadMap(MAP_BY_ID[id]);
     builtMaps.set(id, p);
     p.then((built) => showMapInfo(id, built)).catch(() => builtMaps.delete(id));
   }
@@ -1187,7 +1188,7 @@ function renderMapCards() {
     card.className = 'map-card';
     card.dataset.map = def.id;
     card.style.setProperty('--tint', biome.tint);
-    card.innerHTML = '<canvas></canvas><span class="meta"><b></b><small></small><span class="tags"><span class="tag lvl"></span><span class="tag info">Building…</span></span></span>';
+    card.innerHTML = '<canvas></canvas><span class="meta"><b></b><small></small><span class="tags"><span class="tag lvl"></span><span class="tag info">Loading…</span></span></span>';
     card.querySelector('b').textContent = def.name;
     card.querySelector('small').textContent = def.desc;
     card.querySelector('.lvl').textContent = def.level;
@@ -1203,8 +1204,10 @@ function showMapInfo(id, built) {
   const c = built.counts;
   const secs = Math.round(built.frames / FPS);
   const bits = [`${secs}s`];
-  if (c.loops) bits.push(`${c.loops} loop${c.loops > 1 ? 's' : ''}`);
-  if (c.flips) bits.push(`${c.flips} flip${c.flips > 1 ? 's' : ''}`);
+  const n = (k, w) => { if (k) bits.push(`${k} ${w}${k > 1 ? 's' : ''}`); };
+  n(c.flips, 'flip');
+  n(c.reverses, 'reverse');
+  n(c.loops, 'loop');
   card.querySelector('.info').textContent = bits.join(' · ');
 }
 
@@ -1221,12 +1224,12 @@ async function openMap(id) {
   if (!def) return;
   const card = document.querySelector(`.map-card[data-map="${id}"]`);
   if (card) card.classList.add('loading');
-  if (!builtMaps.has(id)) toast(`Building ${def.name}…`, 1500);
+  if (!builtMaps.has(id)) toast(`Loading ${def.name}…`, 1500);
   let built;
   try {
     built = await ensureBuilt(id);
   } catch (err) {
-    toast(`Couldn't build ${def.name}: ${err.message}`, 3500);
+    toast(`Couldn't load ${def.name}: ${err.message}`, 3500);
     return;
   } finally {
     if (card) card.classList.remove('loading');
