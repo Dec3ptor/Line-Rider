@@ -66,7 +66,7 @@ Tests: `npm test` (Node 18+). It checks the physics, generates three endless wor
 
 ## Publishing with GitHub Pages
 
-The site is plain static files at the repo root. To publish it, go to **Settings → Pages**, set **Source** to **Deploy from a branch**, choose **main** and **/ (root)**, and save. It goes live at `https://<user>.github.io/Line-Rider/` a minute or two later.
+Every push to `main` runs the tests and deploys the site with the **Deploy to GitHub Pages** workflow (`.github/workflows/pages.yml`). In **Settings → Pages**, **Source** must be set to **GitHub Actions**. The site lives at https://dec3ptor.github.io/Line-Rider/.
 
 ## Credits
 
