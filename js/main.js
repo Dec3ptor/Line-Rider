@@ -565,6 +565,10 @@ function render() {
 
   // editor overlays
   if (stroke?.kind === 'line') drawLinePreview(ctx, view, stroke.a, stroke.b, app.lineType, stroke.flipped);
+  if (stroke?.kind === 'eraser' && !hover) {
+    // touch: show the eraser under the finger while rubbing out
+    drawScreenCircle(ctx, view, stroke.last.x, stroke.last.y, ERASER_PX, '#7a808a', 'rgba(120,128,138,0.12)');
+  }
   if (hover && !playing) {
     const w = toWorld(hover.x, hover.y);
     if (app.tool === 'eraser') {
