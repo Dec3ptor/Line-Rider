@@ -1,0 +1,10 @@
+{
+  "name": "line-rider",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A browser remake of the classic Line Rider game",
+  "type": "module",
+  "scripts": {
+    "test": "node test/physics.test.js"
+  }
+}

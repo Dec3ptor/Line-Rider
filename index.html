@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Line Rider</title>
+  <meta name="description" content="Draw a track and watch Bosh ride it. A browser remake of the classic Line Rider game.">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="c" aria-label="Track canvas"></canvas>
+
+  <header class="bar top" role="toolbar" aria-label="Drawing tools">
+    <div class="group">
+      <button class="icon tool active" data-tool="pencil" title="Pencil (Q)" aria-label="Pencil">
+        <svg viewBox="0 0 24 24"><path d="M4 20l1-4.2L15.6 5.2a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19 4 20z"/><path d="M13.8 7l3.2 3.2"/></svg>
+      </button>
+      <button class="icon tool" data-tool="line" title="Line (W)" aria-label="Line">
+        <svg viewBox="0 0 24 24"><path d="M5.5 18.5l13-13"/><circle cx="5" cy="19" r="1.8" fill="currentColor"/><circle cx="19" cy="5" r="1.8" fill="currentColor"/></svg>
+      </button>
+      <button class="icon tool" data-tool="eraser" title="Eraser (E)" aria-label="Eraser">
+        <svg viewBox="0 0 24 24"><path d="M9 20h11"/><path d="M4.7 14.3l8.6-8.6a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L10 19H8.4a2 2 0 0 1-1.4-.6l-2.3-2.3a2 2 0 0 1 0-2.8z"/><path d="M9.5 9.5l5 5"/></svg>
+      </button>
+      <button class="icon tool" data-tool="pan" title="Pan (R) — also drag Bosh to move the start" aria-label="Pan">
+        <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="M9.5 5.5L12 3l2.5 2.5M9.5 18.5L12 21l2.5-2.5M5.5 9.5L3 12l2.5 2.5M18.5 9.5L21 12l-2.5 2.5"/></svg>
+      </button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button class="icon color active" data-type="0" title="Normal line (1)" aria-label="Normal line"><span class="swatch" style="--c:#1565e6"></span></button>
+      <button class="icon color" data-type="1" title="Acceleration line (2) — speeds the rider up in the direction you draw" aria-label="Acceleration line"><span class="swatch" style="--c:#e0261b"></span></button>
+      <button class="icon color" data-type="2" title="Scenery line (3) — decoration only" aria-label="Scenery line"><span class="swatch" style="--c:#1f9e3a"></span></button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
+      <button class="icon" id="flip" title="Flip ride side (F, or hold Shift)" aria-label="Flip ride side" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><path d="M4 12h16"/><path d="M12 9.5V3.5M9.8 5.7L12 3.5l2.2 2.2M12 14.5v6M9.8 18.3l2.2 2.2 2.2-2.2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="side" aria-label="View controls">
+    <button class="icon small" id="zoomIn" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="icon small" id="zoomOut" title="Zoom out (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    <button class="icon small" id="center" title="Find rider (C)" aria-label="Find rider"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg></button>
+  </div>
+
+  <div id="hud" aria-live="polite"></div>
+
+  <footer class="bar bottom" role="toolbar" aria-label="Playback">
+    <div class="group">
+      <button class="icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+      <button class="icon" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+    </div>
+    <div class="sep hide-narrow"></div>
+    <div class="group">
+      <button class="icon" id="stop" title="Stop (U)" aria-label="Stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg></button>
+      <button class="icon play" id="play" title="Play / pause (Space)" aria-label="Play">
+        <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6a1 1 0 0 0 1.5.9l10.6-6.8a1 1 0 0 0 0-1.7L9.5 4.3A1 1 0 0 0 8 5.2z" fill="currentColor" stroke="none"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4.2" height="14" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="icon" id="flag" title="Flag: set a checkpoint to replay from (I)" aria-label="Flag"><svg viewBox="0 0 24 24"><path d="M6 21V4"/><path d="M6 4.5h11l-2.6 4L17 12.5H6"/></svg></button>
+    </div>
+    <div class="timeline">
+      <input type="range" id="timeline" min="0" max="400" value="0" step="1" aria-label="Timeline">
+      <span id="time">0:00.00</span>
+    </div>
+    <div class="group">
+      <button class="icon text" id="speed" title="Playback speed" aria-label="Playback speed">1×</button>
+      <button class="icon" id="menuBtn" title="Menu" aria-label="Menu" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    </div>
+  </footer>
+
+  <div id="menu" class="menu" hidden role="menu">
+    <button role="menuitem" data-action="new">New track</button>
+    <button role="menuitem" data-action="demo">Load demo track</button>
+    <hr>
+    <button role="menuitem" data-action="open">Open file…</button>
+    <button role="menuitem" data-action="save">Save file</button>
+    <button role="menuitem" data-action="share">Copy share link</button>
+    <hr>
+    <button role="menuitem" data-action="color" class="check" aria-checked="false">Colored lines while playing</button>
+    <button role="menuitem" data-action="help">How to play</button>
+  </div>
+
+  <div id="help" class="modal" hidden>
+    <div class="card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <button class="icon close" id="helpClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <h1 id="helpTitle">Line Rider</h1>
+      <p class="lead">Draw a track, press <b>Play</b>, and watch Bosh ride it.</p>
+      <div class="cols">
+        <section>
+          <h2>Tools</h2>
+          <ul>
+            <li><kbd>Q</kbd> <b>Pencil</b> — draw freehand</li>
+            <li><kbd>W</kbd> <b>Line</b> — straight lines that snap to line ends</li>
+            <li><kbd>E</kbd> <b>Eraser</b> — rub out lines</li>
+            <li><kbd>R</kbd> <b>Pan</b> — move around; drag Bosh to move the start</li>
+          </ul>
+          <h2>Lines</h2>
+          <ul>
+            <li><span class="dot" style="--c:#1565e6"></span><kbd>1</kbd> <b>Normal</b> — solid track</li>
+            <li><span class="dot" style="--c:#e0261b"></span><kbd>2</kbd> <b>Boost</b> — speeds Bosh up the way you drew it</li>
+            <li><span class="dot" style="--c:#1f9e3a"></span><kbd>3</kbd> <b>Scenery</b> — decoration, not solid</li>
+          </ul>
+          <p class="note">Lines are solid on one side only. The shaded edge is the ground side, so draw left to right to ride on top. Hold <kbd>Shift</kbd> or use <b>Flip</b> (<kbd>F</kbd>) to swap sides.</p>
+        </section>
+        <section>
+          <h2>Playback</h2>
+          <ul>
+            <li><kbd>Space</kbd> play / pause</li>
+            <li><kbd>U</kbd> stop, back to the start</li>
+            <li><kbd>I</kbd> flag — set a checkpoint; Play restarts there</li>
+            <li><kbd>←</kbd> <kbd>→</kbd> step one frame when paused</li>
+          </ul>
+          <h2>View &amp; editing</h2>
+          <ul>
+            <li>Scroll or pinch to zoom</li>
+            <li>Right-drag or two fingers to pan</li>
+            <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</li>
+            <li>Hold <kbd>Ctrl</kbd> while drawing to turn off snapping</li>
+          </ul>
+          <p class="note">Your track saves in this browser automatically. Use the menu to save a file (it also opens on linerider.com) or copy a share link.</p>
+        </section>
+      </div>
+      <button class="primary" id="helpGo">Start riding</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="fileInput" accept=".json,.track.json,application/json" hidden>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
