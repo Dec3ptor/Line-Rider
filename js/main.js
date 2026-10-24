@@ -661,37 +661,50 @@ function updateTimeline() {
 }
 
 // The rider's path from the start, worked out a slice at a time so drawing stays smooth.
+// The line is coloured by speed (green slow, red fast), with a faint Bosh
+// every second showing which way he's facing.
 const PATH_FRAMES = FPS * 60;
+const PATH_FAST = 16;          // this speed and up is full red
+const PATH_SHADES = 12;
+const pathColors = Array.from({ length: PATH_SHADES }, (_, i) => `hsla(${Math.round(150 - (150 * i) / (PATH_SHADES - 1))}, 85%, 45%, 0.8)`);
+const ghostPts = new Float64Array(34);
 function drawPath() {
   const deadline = performance.now() + 6;
   const z = view.zoom;
   let crash = null, more = false, end = null;
+  const ghosts = [];
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.beginPath();
-  const dots = [];
+  ctx.lineWidth = 3 / z;
+  ctx.setLineDash([7 / z, 4 / z]);
+  let shade = -1, prev = null;
   for (let f = 0; f <= PATH_FRAMES; f++) {
     if (f >= sim.computed && performance.now() > deadline) { more = true; break; }
     const s = sim.frame(f);
     const c = s.center();
-    if (f === 0) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y);
-    if (f > 0 && f % FPS === 0) dots.push(c);
+    const v = s.velocity();
+    const k = Math.min(PATH_SHADES - 1, Math.floor((Math.hypot(v.x, v.y) / PATH_FAST) * PATH_SHADES));
+    if (k !== shade) {
+      // new colour: finish the run so far and carry on from the last point
+      if (shade >= 0) ctx.stroke();
+      shade = k;
+      ctx.strokeStyle = pathColors[k];
+      ctx.beginPath();
+      if (prev) ctx.moveTo(prev.x, prev.y); else ctx.moveTo(c.x, c.y);
+    }
+    ctx.lineTo(c.x, c.y);
+    prev = c;
+    if (f > 0 && f % FPS === 0) ghosts.push(s);
     end = c;
     if (!s.mounted) { crash = c; break; }
   }
-  ctx.strokeStyle = 'rgba(124, 77, 255, 0.55)';
-  ctx.lineWidth = 2 / z;
-  ctx.setLineDash([6 / z, 5 / z]);
-  ctx.stroke();
+  if (shade >= 0) ctx.stroke();
   ctx.setLineDash([]);
-  // a dot every second, so you can see speed
-  ctx.fillStyle = 'rgba(124, 77, 255, 0.75)';
-  for (const d of dots) {
-    ctx.beginPath();
-    ctx.arc(d.x, d.y, 2.6 / z, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.restore();
+  // which way he's facing, once a second
+  for (const g of ghosts) drawRider(ctx, riderPoints(g, null, 0, ghostPts), g, { alpha: 0.22 });
+  ctx.save();
   if (crash) {
     // where he comes off
     const r = 7 / z;
@@ -702,7 +715,7 @@ function drawPath() {
     ctx.moveTo(crash.x + r, crash.y - r); ctx.lineTo(crash.x - r, crash.y + r);
     ctx.stroke();
   } else if (end && !more) {
-    ctx.fillStyle = 'rgba(124, 77, 255, 0.75)';
+    ctx.fillStyle = pathColors[0];
     ctx.beginPath();
     ctx.arc(end.x, end.y, 4 / z, 0, Math.PI * 2);
     ctx.fill();
@@ -715,7 +728,7 @@ function togglePath() {
   app.showPath = !app.showPath;
   $('#pathBtn')?.classList.toggle('active', app.showPath);
   $('#pathBtn')?.setAttribute('aria-pressed', String(app.showPath));
-  toast(app.showPath ? 'Path on: the dotted line shows where Bosh will go' : 'Path off');
+  toast(app.showPath ? 'Path on: colour shows speed (red is fast), ghosts show which way he faces' : 'Path off', app.showPath ? 3200 : 1500);
   saveSettings();
   markDirty();
 }
